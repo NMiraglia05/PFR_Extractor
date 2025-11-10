@@ -15,7 +15,7 @@ logging.basicConfig(
     filemode='w'
 )
 
-teams={
+eams={
     'Buffalo Bills':{       #AFC East
         'url':'buf',
         'abbr':'BUF'
@@ -34,7 +34,7 @@ teams={
     },
     'Baltimore Ravens':{    #AFC North
         'url':'rav',
-        'abbr':'RAV'
+        'abbr':'BAL'
     },
     'Cleveland Browns':{
         'url':'cle',
@@ -54,7 +54,7 @@ teams={
     },
     'Los Angeles Chargers':{
         'url':'sdg',
-        'abbr':'SDG'
+        'abbr':'LAC'
     },
     'Denver Broncos':{
         'url':'den',
@@ -62,7 +62,7 @@ teams={
     },
     'Las Vegas Raiders':{
         'url':'rai',
-        'abbr':'RAI'
+        'abbr':'LVR'
     },
     'Houston Texans':{      #AFC South
         'url':'htx',
