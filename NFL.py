@@ -583,9 +583,9 @@ class Players_Table(Dimension):
 class MissingCols(Exception):
     pass
 
-class DIM_Players:
+class DIM_Players(DIM_Players_Mixin):
     def __init__(self,year):
-        self.dfs=[]
+        self.dfs={}
         for team in teams:
             url_tag=teams[team]['url']
             url=f'https://www.pro-football-reference.com/teams/{url_tag}/{year}_roster.htm'
@@ -595,16 +595,14 @@ class DIM_Players:
                 continue
             soup=BeautifulSoup(html,'html.parser')
             table=Players_Table(soup)
-            self.dfs.append(table.df)
+            self.dfs[teams[team]['abbr']]=table
+            self.generate_player_id(table['Player'],table['BirthDate'])
         self.df=pd.concat(self.dfs)
-        self.df=self.df.drop_duplicates(subset=['Player','Pos'])
-        self.df['Player_ID'] = self.df['Player'].apply(lambda x: int(hashlib.md5(x.encode()).hexdigest()[:8], 16))
         
         self.df['Year_ID'] = self.df['Player_ID'].astype(str) + '_' + str(year)
         cols = self.df.columns.tolist()
         for col in ['Player_ID','Year_ID'][::-1]:
             cols.insert(0, cols.pop(cols.index(col)))
         self.df = self.df[cols]
-        
-        print(self.df)
+
         logging.info(self.df)
