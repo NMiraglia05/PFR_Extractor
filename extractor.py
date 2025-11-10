@@ -81,3 +81,30 @@ def load_page(url,attempt=1,max_attempts=3):
     return driver.page_source   
 
 service = Service(ChromeDriverManager().install())
+
+class DIM_Players_Mixin:
+    def generate_player_id(self,name_col,birth_col):
+        self.df['normalized_name']=normalize_names_column(name_col)
+        self.df['Player']=generate_hash(self.df['normalized_name'],birth_col)
+        self.df['Player_ID']=self.df['Player']+f'_{self.year}'
+        # Drop helper columns if present
+        self.df.drop(columns=[c for c in ['normalized_name','Birthdate_str'] if c in self.df.columns],inplace=True)
+        # Move Player_ID to the front
+        cols=['Player_ID']+[c for c in self.df.columns if c!='Player_ID']
+        self.df=self.df[cols]
+        
+    @staticmethod
+    def normalize_names_column(col:pd.Series)->pd.Series:
+        suffixes=['jr','sr','iii','ii','iv']
+        col_clean=col.str.replace('-',' ',regex=False)
+        col_split=col_clean.str.split()
+        col_filtered=col_split.apply(lambda parts:[p for p in parts if p.lower().rstrip('.') not in suffixes])
+        return col_filtered.apply(lambda parts:parts[0]+parts[-1] if len(parts)>=2 else parts[0])
+
+    @staticmethod
+    def generate_hash(name_col,birth_col):
+        combined=(name_col.str.lower()+birth_col.str.replace('/','',regex=False)).values.astype('U')
+        def vectorized_sha256(arr):
+            return np.array([hashlib.sha256(s.encode('utf-8')).hexdigest()[:8] for s in arr])
+        return pd.Series(vectorized_sha256(combined),index=name_col.index)
+
