@@ -181,12 +181,6 @@ class HTML_Extraction(ABC):
         """List or set of expected column names for conducting shapechecks"""
         raise NotImplementedError()
 
-    @property
-    @abstractmethod
-    def expected_cols(self):
-        """String that describes the category"""
-        raise NotImplementedError() 
-
 class FactDetails(HTML_Extraction):
     """All classes that will interact with the Fact class must inherit this."""
     @property
