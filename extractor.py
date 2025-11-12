@@ -9,6 +9,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium import webdriver
+import hashlib
+import numpy as np
 
 logging.basicConfig(
     filename=f'logs/log_{date.today()}.txt',
@@ -76,21 +78,18 @@ def load_page(url,attempt=1,max_attempts=3):
     except:
         logging.error('Webdriver timed out while waiting for the element.')
         raise Exception
+    logging.info(f'Extraction successful\n\n')
     time.sleep(6) # ensures compliance with PFR's max of 10 requests per minute
-    logging.info(f'Successfuly extracted html for {url}')
     return driver.page_source   
 
-service = Service(ChromeDriverManager().install())
-
 class DIM_Players_Mixin:
-    def generate_player_id(self,name_col,birth_col):
-        self.df['normalized_name']=normalize_names_column(name_col)
-        self.df['Player']=generate_hash(self.df['normalized_name'],birth_col)
-        self.df['Player_ID']=self.df['Player']+f'_{self.year}'
-        # Drop helper columns if present
-        self.df.drop(columns=[c for c in ['normalized_name','Birthdate_str'] if c in self.df.columns],inplace=True)
-        # Move Player_ID to the front
-        cols=['Player_ID']+[c for c in self.df.columns if c!='Player_ID']
+    def generate_player_id(self, name_col, birth_col):
+        self.df['normalized_name'] = self.normalize_names_column(name_col)
+        self.df['Name'] = self.df['Player']
+        self.df['Player'] = self.generate_hash(self.df['normalized_name'], birth_col)
+        self.df['Player_ID'] = self.df['Player'] + f'_{self.year}'
+        self.df.drop(columns=[c for c in ['normalized_name', 'Birthdate_str'] if c in self.df.columns], inplace=True)
+        cols=['Player_ID','Player','Name']+[c for c in self.df.columns if c not in ['Player_ID','Player','Name']]
         self.df=self.df[cols]
         
     @staticmethod
@@ -108,3 +107,4 @@ class DIM_Players_Mixin:
             return np.array([hashlib.sha256(s.encode('utf-8')).hexdigest()[:8] for s in arr])
         return pd.Series(vectorized_sha256(combined),index=name_col.index)
 
+service = Service(ChromeDriverManager().install())
