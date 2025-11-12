@@ -207,7 +207,7 @@ class FactDetails(HTML_Extraction):
         """Dictionary of all stats that will be imported, along with their corresponding id."""
         raise NotImplementedError()
 
-class Passing(FactDetails):
+class Passing(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Cmp':np.int64,'Att':np.int64,'Yds':np.int64,'1D':np.int64,'1D%':np.float64,'IAY':np.int64,'IAY/PA':np.float64,'CAY':np.int64,'CAY/Cmp':np.float64,'CAY/PA':np.float64,'YAC':np.int64,'YAC/Cmp':np.float64,'Drops':np.int64,'Drop%':np.float64,'BadTh':np.int64,'Bad%':np.float64,'Sk':np.int64,'Bltz':np.int64,'Hrry':np.int64,'Hits':np.int64,'Prss':np.int64,'Prss%':np.float64,'Scrm':np.int64,'Yds/Scr':np.float64}
     value_vars=['Cmp','Att','Yds','1D','1D%','IAY','IAY/PA','CAY','CAY/Cmp','CAY/PA','YAC','YAC/Cmp','Drops','Drop%','BadTh','Bad%','Sk','Bltz','Hrry','Hits','Prss','Prss%','Scrm','Yds/Scr']
     pct=['Drop%','Bad%','Prss%']
@@ -244,7 +244,7 @@ class Passing(FactDetails):
         'YdsScr':'P24'
     }
 
-class Receiving(FactDetails):
+class Receiving(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Tgt':np.int64,'Rec':np.int64,'Yds':np.int64,'TD':np.int64,'1D':np.int64,'YBC':np.int64,'YBC/R':np.float64,'YAC':np.int64,'YAC/R':np.float64,'ADOT':np.float64,'BrkTkl':np.int64,'Rec/Br':np.float64,'Drop':np.int64,'Drop%':np.float64,'Int':np.int64,'Rat':np.float64}
     value_vars=['Tgt','Rec','Yds','TD','1D','YBC','YBC/R','YAC','YAC/R','ADOT','BrkTkl','Rec/Br','Drop','Drop%','Int','Rat']
     id='receiving_advanced'
@@ -269,7 +269,7 @@ class Receiving(FactDetails):
         'Rat':'C16'
     }
 
-class Rushing(FactDetails):
+class Rushing(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Att':np.int64,'Yds':np.int64,'TD':np.int64,'1D':np.int64,'YBC':np.int64,'YBC/Att':np.float64,'YAC':np.int64,'YAC/Att':np.float64,'BrkTkl':np.int64,'Att/Br':np.float64}
     value_vars=['Att','Yds','TD','1D','YBC','YBC/Att','YAC','YAC/Att','BrkTkl','Att/Br']
     id='rushing_advanced'
@@ -288,7 +288,7 @@ class Rushing(FactDetails):
         'Att/Br':'R10'
     }
 
-class Defense(FactDetails):
+class Defense(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Int':np.int64,'int_Yds':np.int64,'int_TD':np.int64,'Lng':np.int64,'PD':np.int64,'Sk':np.float64,'Comb':np.int64,'Solo':np.int64,'Ast':np.int64,'TFL':np.int64,'QBHits':np.int64,'FR':np.int64,'Yds':np.int64,'TD':np.int64,'FF':np.int64,'Tgt':np.int64,'Cmp':np.int64,'Cmp%':np.float64,'Yds_Allowed':np.int64,'Yds/Cmp':np.float64,'Yds/Tgt':np.float64,'TD_Allowed':np.int64,'Rat':np.float64,'DADOT':np.float64,'Air':np.float64,'YAC':np.int64,'Bltz':np.int64,'Hrry':np.int64,'QBKD':np.int64,'Sk':np.int64,'Prss':np.int64,'Comb':np.int64,'MTkl':np.int64,'MTkl%':np.float64}
     value_vars=['Int','int_Yds','int_TD','Lng','PD','Sk','Comb','Solo','Ast','TFL','QBHits','FR','Yds','TD','FF','Tgt','Cmp','Cmp%','Yds','Yds/Cmp','Yds/Tgt','TD','Rat','DADOT','Air','YAC','Bltz','Hrry','QBKD','Sk','Prss','Comb','MTkl','MTkl%']
     id='player_defense'
