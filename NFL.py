@@ -334,6 +334,11 @@ class Defense(metaclass=Stat_Cat):
         'MTkl%':'D34'
     }
 
+class Advanced_Defense(HTML_Extraction): # DO NOT add the stat_cat metaclass to this. This is to set the extraction to be added into the defense table.
+    id='defense_advanced'
+    expected_cols=['Player','Tm','Int','Tgt','Cmp','Cmp%','Yds','Yds/Cmp','Yds/Tgt','TD','Rat','DADOT','Air','YAC','Bltz','Hrry','QBKD','Sk','Prss','Comb','MTkl','MTkl%']
+    cat='advanced defense'
+
 class Game:
     def __init__(self,soup,index,year,week):
         self.game_id=f'{week}{index}{year}'
