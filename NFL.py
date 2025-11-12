@@ -5,8 +5,9 @@ from bs4 import BeautifulSoup
 import sys
 import logging
 from datetime import date
-from extractor import load_page, ExtractTable, ExtractionFailed
+from extractor import load_page, ExtractTable, ExtractionFailed, DIM_Players_Mixin
 import hashlib
+import json
 
 logging.basicConfig(
     filename=f'logs/log_{date.today()}.txt',
@@ -15,7 +16,7 @@ logging.basicConfig(
     filemode='w'
 )
 
-eams={
+teams={
     'Buffalo Bills':{       #AFC East
         'url':'buf',
         'abbr':'BUF'
@@ -66,15 +67,15 @@ eams={
     },
     'Houston Texans':{      #AFC South
         'url':'htx',
-        'abbr':'HTX'
+        'abbr':'HOU'
     },
     'Indianapolis Colts':{
         'url':'clt',
-        'abbr':'CLT'
+        'abbr':'IND'
     },
     'Tennessee Titans':{
         'url':'oti',
-        'abbr':'OTI'
+        'abbr':'TEN'
     },
     'Jacksonville Jaguars':{
         'url':'jax',
@@ -114,7 +115,7 @@ eams={
     },
     'Los Angeles Rams':{                 #NFC West
         'url':'ram',
-        'abbr':'RAM'
+        'abbr':'LAR'
     },
     'San Francisco 49ers':{
         'url':'sfo',
@@ -126,6 +127,137 @@ eams={
     },
     'Arizona Cardinals':{
         'url':'crd',
+        'abbr':'ARI'
+    },
+    'Tampa Bay Buccaneers':{    #NFC South
+        'url':'tam',
+        'abbr':'TAM'
+    },
+    'Atlanta Falcons':{
+        'url':'atl',
+        'abbr':'ATL'
+    },
+    'New Orleans Saints':{
+        'url':'nor',
+        'abbr':'NOR'
+    },
+    'Carolina Panthers':{
+        'url':'car',
+        'abbr':'CAR'
+    }
+}
+
+teams={
+    'Buffalo Bills':{       #AFC East
+        'url':'buf',
+        'abbr':'BUF'
+    },
+    'Miami Dolphins':{
+        'url':'mia',
+        'abbr':'MIA'
+    },
+    'New England Patriots':{
+        'url':'nwe',
+        'abbr':'NWE'
+    },
+    'New York Jets':{
+        'url':'nyj',
+        'abbr':'NYJ'
+    },
+    'Baltimore Ravens':{    #AFC North
+        'url':'rav',
+        'abbr':'BAL'
+    },
+    'Cleveland Browns':{
+        'url':'cle',
+        'abbr':'CLE'
+    },
+    'Pittsburgh Steelers':{
+        'url':'pit',
+        'abbr':'PIT'
+    },
+    'Cincinnati Bengals':{
+        'url':'cin',
+        'abbr':'CIN'
+    },
+    'Kansas City Chiefs':{           #AFC West
+        'url':'kan',
+        'abbr':'KAN'
+    },
+    'Los Angeles Chargers':{
+        'url':'sdg',
+        'abbr':'LAC'
+    },
+    'Denver Broncos':{
+        'url':'den',
+        'abbr':'DEN'
+    },
+    'Las Vegas Raiders':{
+        'url':'rai',
+        'abbr':'LVR'
+    },
+    'Houston Texans':{      #AFC South
+        'url':'htx',
+        'abbr':'HOU'
+    },
+    'Indianapolis Colts':{
+        'url':'clt',
+        'abbr':'IND'
+    },
+    'Tennessee Titans':{
+        'url':'oti',
+        'abbr':'TEN'
+    },
+    'Jacksonville Jaguars':{
+        'url':'jax',
+        'abbr':'JAX'
+    },
+    'New York Giants':{        #NFC East
+        'url':'nyg',
+        'abbr':'NYG'
+    },
+    'Dallas Cowboys':{
+        'url':'dal',
+        'abbr':'DAL'
+    },
+    'Washington Commanders':{
+        'url':'was',
+        'abbr':'WAS'
+    },
+    'Philadelphia Eagles':{ 
+        'url':'phi',
+        'abbr':'PHI'
+    },
+    'Chicago Bears':{           #NFC North
+        'url':'chi',
+        'abbr':'CHI'
+    },
+    'Green Bay Packers':{
+        'url':'gnb',
+        'abbr':'GNB'
+    },
+    'Detroit Lions':{
+        'url':'det',
+        'abbr':'DET'
+    },
+    'Minnesota Vikings':{
+        'url':'min',
+        'abbr':'MIN'
+    },
+    'Los Angeles Rams':{                 #NFC West
+        'url':'ram',
+        'abbr':'LAR'
+    },
+    'San Francisco 49ers':{
+        'url':'sfo',
+        'abbr':'SFO'
+    },
+    'Seattle Seahawks':{
+        'url':'sea',
+        'abbr':'SEA'
+    },
+    'Arizona Cardinals':{
+        'url':'ari',
         'abbr':'ARI'
     },
     'Tampa Bay Buccaneers':{    #NFC South
@@ -332,6 +464,24 @@ class Game:
         stadium_box=game_details[2].get_text().strip()
         self.stadium=stadium_box.split(':',1)[1].strip()
 
+        game_info_box=soup.find('table',id='game_info')
+        
+        rows=game_info_box.find_all('tr')
+        rows=rows[1:]
+        
+        roofrow=rows[1]
+        roof=roofrow.find('td',class_='center').get_text()
+        
+        surfacerow=rows[2]
+        surface=surfacerow.find('td',class_='center').get_text()
+        
+        reftable=soup.find('table',id='officials')
+        rows=reftable.find_all('tr')
+        row=rows[1]
+        ref=row.find('td',{'data-stat':'name'}).get_text()
+
+        print(ref)
+
         self.team_tags={
             home_team_key:f'{self.game_id}H',
             away_team_key:f'{self.game_id}A'
@@ -340,6 +490,8 @@ class Game:
         home_list=[f'{self.game_id}H',self.game_id,home_team_key,away_team_key,self.game_date,self.game_time,self.stadium]
         away_list=[f'{self.game_id}A',self.game_id,away_team_key,home_team_key,self.game_date,self.game_time,self.stadium]
         self.game_rows=[home_list,away_list]
+
+        self.df=pd.DataFrame(self.game_rows,columns=['Game_ID','Game','Team','Opponent','Date','Time','Stadium'])
 
         self.Fact_Table=FactTable(soup,self)
 
@@ -397,6 +549,8 @@ class FactTable:
         rushing=Fact(soup,Rushing)
         defense=Defense_Table(soup,Defense)
 
+        #print(receiving.df)
+
         categories=[passing,receiving,rushing,defense]
         dataframes=[]
         
@@ -406,7 +560,16 @@ class FactTable:
 
         self.df=pd.concat(dataframes)
         self.df['Game_id']=self.df['Tm'].map(game_details.team_tags)
-        self.df=self.df[['Player','Tm','Game_id','Stat','Value']]   
+        self.df=self.df[['Player','Tm','Game_id','Stat','Value']]
+
+    def substitute_player_id(self,player_table):
+        self.df=self.df.merge(
+            player_table[['Name','Team','Player_ID']],
+            how='left',
+            left_on=['Player','Tm'],
+            right_on=['Name','Team']
+        )
+        self.df.drop(columns=['Player','Name','Team'],inplace=True)
 
 class Fact(Table):
     def __init__(self,soup,category):
@@ -433,10 +596,8 @@ class Defense_Table(Fact):
         super().__init__(soup,category)
 
         box_1=self.df.iloc[:,:2]
-        box_2=self.df.iloc[:,2:7]
+        box_2=self.df.iloc[:,2:7].rename(columns={'Yds':'int_Yds','TD':'int_TD'})
         box_3=self.df.iloc[:,7:]
-    
-        box_2.rename(columns={'Yds':'int_Yds','TD':'int_TD'},inplace=True)
 
         advanced_stats=self.get_advanced_stats()
 
@@ -456,7 +617,8 @@ class Season:
     def __init__(self,year,start_week=1,end_week=18,scrape_players=True):
         if scrape_players is True:
             pass
-            #Players=DIM_Players(year)
+            Players=DIM_Players(year)
+            self.teamref=Players.df
 
         if end_week>18:
             logging.debug('End week cannot be greater than 18- setting to 18.')
@@ -468,30 +630,56 @@ class Season:
             self.weeks.append(week_obj)
         
         try:
-            for week in self.weeks: #separate loop to avoid keeping webdriver open while soup objects are created
+            for week in self.weeks:
                 week.extract_htmls()
 
         finally:
             logging.info('\n\nClosing webdriver...\n')
             #driver.quit()
 
+        self.weeks.append(week_obj)
+
         fact_tables=[]
+        dim_games_tables=[]
 
         for week in self.weeks:
             week.create_games()
             week.create_tables()
             fact_tables.append(week.fact_stats)
+            dim_games_tables.append(week.dim_games)
 
         self.FACT_Stats=pd.concat(fact_tables)
-        print(self.FACT_Stats)
+        self.DIM_Games=pd.concat(dim_games_tables)
+        
+        self.substitute_player_id(self.FACT_Stats,self.teamref)
+        
+        self.teamref=self.teamref.drop_duplicates(subset=['Player_ID'])
+        self.teamref.drop(columns=['Team'],inplace=True)
+
+        with pd.ExcelWriter('New_Excel_Test.xlsx',mode='w') as writer:
+            self.FACT_Stats.to_excel(writer,sheet_name='FACT_Stats',index=False)
+            self.DIM_Games.to_excel(writer,sheet_name='DIM_Games',index=False)
+            self.teamref.to_excel(writer,sheet_name='DIM_Players',index=False)
+
+
+    def substitute_player_id(self,fact_table,player_table):
+        fact_table=fact_table.merge(
+            player_table[['Name','Team','Player_ID']],
+            how='left',
+            left_on=['Player','Tm'],
+            right_on=['Name','Team']
+        )
+        fact_table.drop(columns=['Player','Name','Team'],inplace=True)
+        fact_table=fact_table[['Player_ID','Tm','Game_id','Stat','Value']]
+        self.FACT_Stats=fact_table
 
 class Week:
     def __init__(self,week,year):
         self.week=week
         self.year=year
         self.week_url=f'https://www.pro-football-reference.com/years/{year}/week_{week}.htm'
-        html=load_page(self.week_url)
-        self.soup=BeautifulSoup(html,'html.parser')
+        #html=load_page(self.week_url)
+        #self.soup=BeautifulSoup(html,'html.parser')
 
         self.games=[]
         self.dim_game_rows=[]
@@ -500,10 +688,17 @@ class Week:
         self.links=[]
         self.htmls=[]
 
-        self.extract_links()
+        with open('full_week_test_games_2.txt','r',encoding='utf-8') as f:
+            self.html_dic=json.load(f)
+
+
+        #self.extract_links()
 
     def create_tables(self):
+        print(len(self.games))
         for game in self.games:
+            print(game.Fact_Table.df)
+            print('\n\ngame should have printed\n\n')
             self.fact_tables.append(game.Fact_Table.df)
             for row in game.game_rows:
                 self.dim_game_rows.append(row)
@@ -514,12 +709,15 @@ class Week:
         self.fact_stats=pd.concat(self.fact_tables).reset_index(drop=True)
 
     def create_games(self):
+        print(len(self.htmls))
         for i,html in enumerate(self.htmls,start=1):
             soup=BeautifulSoup(html,'html.parser')
             game=Game(soup,i,self.year,self.week)
             self.games.append(game)
 
     def extract_htmls(self):
+        self.htmls=self.html_dic[str(self.week)]
+        return
         for link in self.links:
             page_html=load_page(link)
             self.htmls.append(page_html)
@@ -560,8 +758,9 @@ class Roster(HTML_Extraction):
     }
     cat='DIM_Players'
 
-class Players_Table(Dimension):
-    def __init__(self,soup):
+class Players_Table(Dimension,DIM_Players_Mixin):
+    def __init__(self,soup,year):
+        self.year=year
         settings=Roster
         self.soup=soup
         super().__init__(soup,settings)
@@ -585,23 +784,28 @@ class MissingCols(Exception):
 
 class DIM_Players(DIM_Players_Mixin):
     def __init__(self,year):
+        self.year=year
         self.dfs={}
+        with open('full_week_test_rosters.txt', 'r', encoding='utf-8') as f:
+            my_dict = json.load(f)
         for team in teams:
             url_tag=teams[team]['url']
-            url=f'https://www.pro-football-reference.com/teams/{url_tag}/{year}_roster.htm'
-            try:
-                html=load_page(url)
-            except ExtractionFailed:
-                continue
+            #url=f'https://www.pro-football-reference.com/teams/{url_tag}/{year}_roster.htm'
+            #try:
+            #    html=load_page(url)
+            #except ExtractionFailed:
+            #    continue
+            html=my_dict[url_tag.upper()]
             soup=BeautifulSoup(html,'html.parser')
-            table=Players_Table(soup)
-            self.dfs[teams[team]['abbr']]=table
-            self.generate_player_id(table['Player'],table['BirthDate'])
+            table=Players_Table(soup,year)
+            self.df=table.df.copy()  # ensure it's a copy
+            self.generate_player_id(self.df['Player'],self.df['BirthDate'])
+            self.df['Team']=teams[team]['abbr']  # now safe to assign
+            self.dfs[teams[team]['abbr']]=self.df
         self.df=pd.concat(self.dfs)
         
-        self.df['Year_ID'] = self.df['Player_ID'].astype(str) + '_' + str(year)
         cols = self.df.columns.tolist()
-        for col in ['Player_ID','Year_ID'][::-1]:
+        for col in ['Player_ID','Player'][::-1]:
             cols.insert(0, cols.pop(cols.index(col)))
         self.df = self.df[cols]
 
