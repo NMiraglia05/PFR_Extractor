@@ -278,6 +278,26 @@ teams={
     }
 }
 
+class Stat_Cat(ABCMeta): # any flat class used to define a statistical category must inherit this
+    registry = []
+
+    def __new__(cls, name, bases, attrs):
+        # Create the class normally
+        new_cls = super().__new__(cls, name, bases, attrs)
+
+        # Skip the base abstract class
+        if not attrs.get('__abstractmethods__', False):
+            # Enforce required attributes
+            required_attrs = ['id', 'expected_cols', 'cat']
+            for attr in required_attrs:
+                if not hasattr(new_cls, attr):
+                    raise TypeError(f"Class {name} must define '{attr}'")
+
+            # Register the concrete class
+            Stat_Cat.registry.append(new_cls)
+
+        return new_cls
+
 class HTML_Extraction(ABC):
     """All classes that will be used for settings in the table class must inherit this."""
     @property
