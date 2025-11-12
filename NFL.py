@@ -704,3 +704,68 @@ class DIM_Players(DIM_Players_Mixin):
         self.df = self.df[cols]
 
         logging.info(self.df)
+
+class HTML_Layer:
+    def __init__(self,year):
+        self.team_htmls={}
+        self.roster_htmls={}
+
+        self.extract_teams()
+
+        for week in range(settings.start_week,settings.end_week):
+            self.url=f'https://www.pro-football-reference.com/years/{year}/week_{week}.htm'
+            html=self.load_page()
+            
+
+
+
+        def extract_teams(self):
+            for team in teams:
+                dicref=teams[team]
+                base_url=f'https://www.pro-football-reference.com/teams/{dicref['url']}/'
+                self.url=base_url+f'{year}_roster.htm'
+                roster_html=self.load_page()
+                self.url=base_url+f'{year}.htm'
+                team_html=self.load_page()
+
+                team_abbr=dicref['abbr']
+
+                self.team__htmls[team_abbr]=team_html
+                self.roster_htmls[team_abbr]=roster_html
+
+        def load_page(self,attempt=1,max_attempts=3):
+            logging.info(f'attempting to extract html for {self.url}')
+
+            if 'driver' not in globals() or driver is None:
+                    logging.info('No active driver detected, starting new webdriver...')
+                    service = Service(ChromeDriverManager().install())
+                    options = Options()
+                    options.add_argument("--headless")
+                    options.add_argument("--disable-gpu")
+                    options.add_argument("--no-sandbox")
+                    options.add_argument("--disable-dev-shm-usage")
+                    options.add_argument("--enable-unsafe-swiftshader")
+                    options.add_argument("--log-level=3")
+                    options.add_argument("window-size=1920,1080")
+                    options.add_argument("--ignore-certificate-errors")
+                    driver = webdriver.Chrome(service=service, options=options)
+            try:
+                driver.get(url)
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            except Exception as e:
+                if attempt<max_attempts:
+                    logging.warning(f'Attempt {attempt} failed- reattempting.')
+                    return load_page(url,attempt+1)
+                else:
+                    logging.error(f'Unable to extract {url}- attempt 3 failed.')
+                    raise ExtractionFailed
+            try:
+                WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "table")))
+            except:
+                logging.error('Webdriver timed out while waiting for the element.')
+                raise Exception
+            logging.info(f'Extraction successful\n\n')
+            time.sleep(6) # ensures compliance with PFR's max of 10 requests per minute
+            return driver.page_source 
+
+
