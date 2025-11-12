@@ -279,7 +279,7 @@ teams={
 }
 
 class HTML_Extraction(ABC):
-    """All classes that will interact with beautifulsoup must inherit this."""
+    """All classes that will be used for settings in the table class must inherit this."""
     @property
     @abstractmethod
     def id(self):
@@ -291,6 +291,12 @@ class HTML_Extraction(ABC):
     def expected_cols(self):
         """List or set of expected column names for conducting shapechecks"""
         raise NotImplementedError()
+
+    @property
+    @abstractmethod
+    def expected_cols(self):
+        """String that describes the category"""
+        raise NotImplementedError() 
 
 class FactDetails(HTML_Extraction):
     """All classes that will interact with the Fact class must inherit this."""
