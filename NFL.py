@@ -709,13 +709,29 @@ class HTML_Layer:
     def __init__(self,year):
         self.team_htmls={}
         self.roster_htmls={}
+        self.week_htmls={}
 
         self.extract_teams()
 
         for week in range(settings.start_week,settings.end_week):
+            self.week_htmls[week]=[]
             self.url=f'https://www.pro-football-reference.com/years/{year}/week_{week}.htm'
-            html=self.load_page()
-            
+            week_html=self.load_page()
+            soup=BeautifulSoup(week_html,'html.parser')
+            week_games=self.soup.find_all('div',class_='game_summaries')
+            if len(week_games)==2:
+                week_games=week_games[1]
+            else:
+                week_games=week_games[0]
+
+            games=week_games.find_all('div',class_='game_summary expanded nohover')
+
+            for game in games:
+                game_link=game.find('td',class_='right gamelink')
+                link=game_link.find('a')['href']
+                self.url=f'https://www.pro-football-reference.com{link}'
+                html=self.load_page()
+                self.week_htmls[week].append(html)
 
 
 
@@ -767,5 +783,7 @@ class HTML_Layer:
             logging.info(f'Extraction successful\n\n')
             time.sleep(6) # ensures compliance with PFR's max of 10 requests per minute
             return driver.page_source 
+
+
 
 
