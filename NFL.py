@@ -282,6 +282,29 @@ class Rushing(metaclass=Stat_Cat):
         'Att/Br':'R10'
     }
 
+class Defense_Table(Fact):
+    def __init__(self,soup,category):
+        self.soup=soup
+        super().__init__(soup,category)
+
+        box_1=self.df.iloc[:,:2]
+        box_2=self.df.iloc[:,2:7].rename(columns={'Yds':'int_Yds','TD':'int_TD'})
+        box_3=self.df.iloc[:,7:]
+
+        self.base_defense=pd.concat([box_1,box_2,box_3],axis=1)
+
+        advanced_stats=self.get_advanced_stats()
+
+        self.df=pd.merge(self.base_defense,advanced_stats,on=['Player','Tm'],how='outer').fillna(0)
+
+        self.df = self.df[self.df['Player'] != 'Player']
+
+    def get_advanced_stats(self):
+        advanced=Table(self.soup,Advanced_Defense)
+        advanced.df.drop(columns=['Int','Sk','Comb'],inplace=True)
+        advanced.df.rename(columns={'Yds':'Yds_Allowed','TD':'TD_Allowed'},inplace=True)
+        return advanced.df
+
 class Defense(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Int':np.int64,'int_Yds':np.int64,'int_TD':np.int64,'Lng':np.int64,'PD':np.int64,'Sk':np.float64,'Comb':np.int64,'Solo':np.int64,'Ast':np.int64,'TFL':np.int64,'QBHits':np.int64,'FR':np.int64,'Yds':np.int64,'TD':np.int64,'FF':np.int64,'Tgt':np.int64,'Cmp':np.int64,'Cmp%':np.float64,'Yds_Allowed':np.int64,'Yds/Cmp':np.float64,'Yds/Tgt':np.float64,'TD_Allowed':np.int64,'Rat':np.float64,'DADOT':np.float64,'Air':np.float64,'YAC':np.int64,'Bltz':np.int64,'Hrry':np.int64,'QBKD':np.int64,'Sk':np.int64,'Prss':np.int64,'Comb':np.int64,'MTkl':np.int64,'MTkl%':np.float64}
     value_vars=['Int','int_Yds','int_TD','Lng','PD','Sk','Comb','Solo','Ast','TFL','QBHits','FR','Yds','TD','FF','Tgt','Cmp','Cmp%','Yds','Yds/Cmp','Yds/Tgt','TD','Rat','DADOT','Air','YAC','Bltz','Hrry','QBKD','Sk','Prss','Comb','MTkl','MTkl%']
@@ -321,11 +344,9 @@ class Defense(metaclass=Stat_Cat):
         'Bltz':'D27',
         'Hrry':'D28',
         'QBKD':'D29',
-        'Sk':'D30',
-        'Prss':'D31',
-        'Comb':'D32',
-        'MTkl':'D33',
-        'MTkl%':'D34'
+        'Prss':'D30',
+        'MTkl':'D31',
+        'MTkl%':'D32'
     }
 
 class Advanced_Defense(HTML_Extraction): # DO NOT add the stat_cat metaclass to this. This is to set the extraction to be added into the defense table.
@@ -390,21 +411,16 @@ class Game:
         self.Fact_Table=FactTable(soup,self)
 
 class Table:
-    """Mixin for validating and cleaning dataframes"""
-    def __init__(self):
-        try:
-            self.shapecheck()
-        except MissingCols:
-            sys.exit()
-        self.clean_table()
+    def __init__(self,category):
+        logging.info(f'\nCreating dataframe for {category.cat}')
+        for k,v in category.__dict__.items():
+            if not k.startswith('__'):
+                setattr(self,k,v)
+        logging.debug(self.dict)
+        self.df=ExtractTable(self.soup,self.id).fillna(0).replace('',0)
 
-    def clean_table(self):
-        return
-        if hasattr(self, 'cleaning'):
-            for dirtychar in self.cleaning:
-                cleanchar=self.cleaning[dirtychar]['replace']
-                for col in self.cleaning[dirtychar]['cols']:
-                    self.df[col]=self.df[col].str.replace(dirtychar,cleanchar).fillna(0)
+        logging.debug('Shapecheck in progress...')
+        self.shapecheck()
 
     def shapecheck(self):
         logging.debug('Conducting shapecheck.')
@@ -412,28 +428,13 @@ class Table:
         expected=set(self.expected_cols.keys())
         self.missing_cols=expected-actual_cols
         if self.missing_cols:
-            logging.critical(f'Shapecheck failed. The table is missing the following columns: {self.missing_cols}. Closing program.')
+            logging.critical(f'Shapecheck failed. The table is missing the following columns: {self.missing_cols}.')
             raise MissingCols
         
         leftover_cols=actual_cols-expected
         
         if leftover_cols:
             logging.warning(f'Shapecheck succeeded, however there are more columns than expected. Unexpected columns: {leftover_cols}. These will be retained.')
-
-    def typecheck(self):
-        for col in self.df.columns:
-            expectedtype=self.expected_cols[col]
-            actualtype=self.df[col].dtypes
-            if expectedtype==actualtype:
-                logging.debug('Typecheck succeeded')
-                continue
-            else:
-                logging.debug(f'{col} failed typecheck. Expected type: {expectedtype}. Actual type: {actualtype}. Attempting conversion...')
-                try:
-                    self.df[col]=self.df[col].astype(expectedtype)
-                    logging.debug('Successfully converted to expected type.')
-                except Exception as e:
-                    logging.error(f'Unable to convert{col}- {e}')
 
 class FactTable:
     def __init__(self,soup,game_details):
@@ -467,22 +468,27 @@ class FactTable:
 
 class Fact(Table):
     def __init__(self,soup,category):
-        logging.info(f'Extracting {category.cat} data...')
-        for k,v in category.__dict__.items():
-            if not k.startswith('__'):
-                setattr(self,k,v)
-        self.df=ExtractTable(soup,self.id).fillna(0).replace('',0)
+        super().__init__(soup,category)
 
     def process(self):
-        super().__init__()
-        
-        self.df = self.df[self.df['Player'] != 'Player']
+            super().__init__()
+            
+            self.df = self.df[self.df['Player'] != 'Player']
 
-        self.typecheck()
+            self.typecheck()
 
-        self.df=self.df.melt(id_vars=['Player','Tm'],value_vars=self.value_vars,var_name='Stat',value_name='Value')
+            self.df=self.df.melt(id_vars=['Player','Tm'],value_vars=self.value_vars,var_name='Stat',value_name='Value')
 
-        self.df['Stat']=self.df['Stat'].map(self.stat_lookup)
+            self.df['Stat']=self.df['Stat'].map(self.stat_lookup)
+
+    def substitute_player_id(self,player_table):
+        self.df=self.df.merge(
+            player_table[['Name','Team','Player_ID']],
+            how='left',
+            left_on=['Player','Tm'],
+            right_on=['Name','Team']
+        )
+        self.df.drop(columns=['Player','Name','Team'],inplace=True)
 
 class Defense_Table(Fact):
     def __init__(self,soup,category):
@@ -784,6 +790,21 @@ class HTML_Layer:
             time.sleep(6) # ensures compliance with PFR's max of 10 requests per minute
             return driver.page_source 
 
+class Fact_Stats_Table(Table,Fact_Mixin):
+    def __init__(self,soup,game_details):
+        logging.info('Extracting fact table data...')
+        
+        dataframes=[]
 
+        for cat_cls in Stat_Registry.registry:
+            if cat_cls.cat=='defense':
+                instance=Defense_Table(soup,cat_cls)
+            else:
+                instance=Fact(soup,cat_cls)
+            dataframes.append(instance.df)
+
+        self.df=pd.concat(dataframes)
+        self.df['Game_id']=self.df['Tm'].map(game_details.team_tags)
+        self.df=self.df[['Player','Tm','Game_id','Stat','Value']]
 
 
