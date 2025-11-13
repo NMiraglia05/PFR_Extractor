@@ -274,6 +274,7 @@ class Stat_Cat(ABCMeta): # any flat class used to define a statistical category 
 
 class HTML_Layer:
     def __init__(self,year,settings):
+        logging.info('Starting the html layer...\n')
         try:
             self.year=year
             self.team_htmls={}
@@ -293,10 +294,12 @@ class HTML_Layer:
             self.driver = webdriver.Chrome(service=service, options=options)
 
             if settings.scrape_teams==True or settings.scrape_rosters==True:
+                logging.debug('Scraping loop for teams/rosters triggered\n')
                 self.extract_teams()
 
             if settings.scrape_games==True:
                 for week in range(settings.start_week,settings.end_week):
+                    logging.info(f'Now scraping html for week {week}')
                     self.week_htmls[week]=[]
                     self.url=f'https://www.pro-football-reference.com/years/{year}/week_{week}.htm'
                     week_html=self.load_page()
@@ -311,7 +314,10 @@ class HTML_Layer:
 
                     games=games[:1]
 
-                    for game in games:
+                    games_count=len(games)
+
+                    for i, game in enumerate(games):
+                        logging.info(f'Scraping game {i} of {games_count}\n')
                         game_link=game.find('td',class_='right gamelink')
                         link=game_link.find('a')['href']
                         self.url=f'https://www.pro-football-reference.com{link}'
@@ -323,20 +329,24 @@ class HTML_Layer:
 
     def extract_teams(self):
         for team in teams:
+            logging.info(f'Scraping {team}...\n')
             dicref=teams[team]
             base_url=f'https://www.pro-football-reference.com/teams/{dicref['url']}/'
             team_abbr=dicref['abbr']
             if self.settings.scrape_teams==True:
+                logging.debug('Extracting team details')
                 self.url=base_url+f'{self.year}_roster.htm'
                 roster_html=self.load_page()
                 self.roster_htmls[team_abbr]=roster_html
-            if self.setting.scrape_rosers==True:
+            if self.setting.scrape_rosters==True:
+                logging.debug('Extracting roster details...')
                 self.url=base_url+f'{self.year}.htm'
                 team_html=self.load_page()
                 self.team__htmls[team_abbr]=team_html
+            logging.debug('Finished\n')
 
     def load_page(self,attempt=1,max_attempts=3):
-        logging.info(f'attempting to extract html for {self.url}')
+        logging.debug(f'attempting to extract html for {self.url}')
         try:
             self.driver.get(self.url)
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
@@ -352,7 +362,7 @@ class HTML_Layer:
         except:
             logging.error('Webdriver timed out while waiting for the element.')
             raise Exception
-        logging.info(f'Extraction successful\n\n')
+        logging.debug(f'Extraction successful\n\n')
         time.sleep(6) # ensures compliance with PFR's max of 10 requests per minute
         return self.driver.page_source
 
