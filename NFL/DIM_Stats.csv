@@ -1,0 +1,83 @@
+Abbrev,Column,Full Name,Description
+Cmp,P1,Completions,Number of passes successfully caught by a receiver
+Att,P2,Attempts,Number of passes thrown
+Yds,P3,Passing Yards,Total yards gained on completed passes
+1D%,P4,First Down %,Percentage of plays resulting in a first down
+1D,P5,First Downs,Number of plays resulting in a first down
+IAY,P6,Intended Air Yards,Total yards the ball was intended to travel in the air
+IAY/PA,P7,Intended Air Yards per Pass Attempt,Average intended air yards per pass attempt
+CAY,P8,Completed Air Yards,Air yards actually gained on completed passes
+CAY/Cmp,P9,Completed Air Yards per Completion,Average air yards per completed pass
+CAY/PA,P10,Completed Air Yards per Attempt,Average air yards per pass attempt
+YAC,P11,Yards After Catch,Yards gained by receiver after catching the ball
+YAC/Cmp,P12,Yards After Catch per Completion,Average YAC per completed pass
+Drops,P13,Drops,Number of passes dropped by receivers
+Drop%,P14,Drop Percentage,Percentage of catchable passes dropped
+BadTh,P15,Bad Throws,Number of poorly thrown passes (low quality)
+Bad%,P16,Bad Throw Percentage,Percentage of passes classified as bad throws
+Sk,P17,Sacks,Number of times the QB was tackled behind the line of scrimmage
+Bltz,P18,Blitzes,Number of plays where a defensive blitz occurred
+Hrry,P19,QB Hurry,Number of times the QB was pressured into a throw
+Hits,P20,QB Hits,Number of times the QB was hit during or after throwing
+Prss,P21,Pressures,Total number of QB pressures (Hurries + Hits + Sacks)
+Prss%,P22,Pressure %,Percentage of dropbacks in which QB faced pressure
+Scrm,P23,Scrambles,Number of plays where QB scrambled
+YdsScr,P24,Scramble Yards,Yards gained on QB scrambles
+Tgt,C1,Targets,Number of times a receiver was the intended target on a pass
+Rec,C2,Receptions,Number of passes successfully caught by the receiver
+Yds,C3,Yards,Total yards gained on receptions
+TD,C4,Touchdowns,Number of receiving touchdowns
+1D,C5,First Downs,Number of receptions resulting in a first down
+YBC,C6,Yards Before Catch,Total yards gained by receiver before catching the ball (or after catch start?)
+YBC/R,C7,Yards Before Catch per Reception,Average yards before catch per reception
+YAC,C8,Yards After Catch,Total yards gained after the catch
+YAC/R,C9,Yards After Catch per Reception,Average yards after catch per reception
+ADOT,C10,Average Depth of Target,Average distance the receiver was targeted downfield
+BrkTkl,C11,Broken Tackles,Broken Tackles
+Rec/Br,C12,Receptions per Broken Tackle,Average receptions per broken tackle (efficiency measure)
+Drop,C13,Drops,Dropped passes
+Drop%,C14,Drop Percentage,Dropped passes per target
+Int,C15,Interceptions,Number of passes thrown to the receiver that were intercepted (or QB INT when targeting?)
+Rat,C16,Catch Rating,"Efficiency rating for the receiver based on completions, drops, and production"
+Att,R1,Rush Attempts,Number of times the player ran the ball
+Yds,R2,Rushing Yards,Total yards gained on rushing attempts
+TD,R3,Rushing Touchdowns,Number of rushing touchdowns
+1D,R4,First Downs,Number of rushing attempts resulting in a first down
+YBC,R5,Yards Before Contact,Yards gained before first contact with a defender
+YBC/Att,R6,Yards Before Contact per Attempt,Average yards before contact per rush attempt
+YAC,R7,Yards After Contact,Yards gained after first contact with a defender
+YAC/Att,R8,Yards After Contact per Attempt,Average yards after contact per rush attempt
+BrkTkl,R9,Broken Tackles,Number of tackles the player avoided on rushing plays
+Att/Br,R10,Attempts per Broken Tackle,Average number of rush attempts per broken tackle (efficiency measure)
+Int,D1,Interceptions,Number of passes intercepted by the defender
+int_Yds,D2,Interception Return Yards,Total yards gained on interception returns
+int_TD,D3,Interception Return Touchdowns,Number of touchdowns scored on interception returns
+Lng,D4,Longest Interception Return,Longest distance gained on a single interception return
+PD,D5,Passes Defended,Number of passes the defender successfully defended
+Sk,D6,Sacks,Number of times the defender tackled the QB behind the line of scrimmage
+Comb,D7,Combined Tackles,Total tackles (solo + assisted)
+Solo,D8,Solo Tackles,Number of tackles made alone
+Ast,D9,Assisted Tackles,Number of tackles assisted with teammates
+TFL,D10,Tackles for Loss,Number of tackles that resulted in a loss of yardage
+QBHits,D11,Quarterback Hits,Number of times the defender hit the quarterback (not necessarily a sack)
+FR,D12,Fumbles Recovered,Number of opponent fumbles recovered
+Yds,D13,Fumble Return Yards,Total yards gained on fumble returns
+TD,D14,Fumble Return Touchdowns,Number of touchdowns scored on fumble returns
+FF,D15,Forced Fumbles,Number of times the defender caused the opponent to fumble
+Tgt,D16,Times Targeted,Number of times a defender was targeted in coverage
+Cmp,D17,Completions Allowed,Number of passes completed against the defender
+Cmp%,D18,Completion Percentage Allowed,Percentage of passes completed when targeted
+Yds_Allowed,D19,Receiving Yards Allowed,Total passing yards allowed while in coverage
+Yds/Cmp,D20,Yards per Completion Allowed,Average yards given up per completion
+Yds/Tgt,D21,Yards Allowed per Target,Average yards given up per target
+TD_Allowed,D22,Receiving Touchdowns Allowed,Number of touchdowns allowed while in coverage
+Rat,D23,QB Rating Allowed,Opponent quarterback rating when targeting the defender
+DADOT,D24,Defensive Air Distance Over Target,Average air yards allowed to the receiver against the defender
+Air,D25,Air Yards Allowed,Total air yards allowed against the defender
+YAC,D26,Yards After Catch Allowed,Total yards after catch allowed while in coverage
+Bltz,D27,Blitzes,Number of blitzes performed by the defender
+Hrry,D28,QB Hurry,Number of quarterback hurries generated
+QBKD,D29,QB Knockdowns,Number of times the quarterback was knocked down (not sack)
+Prss,D30,Pressures,Number of quarterback pressures (includes hurries + hits + sacks)
+MTkl,D31,Missed Tackles,Number of tackles missed
+MTkl%,D32,Missed Tackles Percentage,Percentage of missed tackle attempts
