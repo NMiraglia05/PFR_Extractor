@@ -1,17 +1,25 @@
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 import sys
 import logging
 from datetime import date
-from extractor import load_page, ExtractTable, ExtractionFailed, DIM_Players_Mixin
+from extractor import ExtractTable, ExtractionFailed, DIM_Players_Mixin
 import hashlib
 import json
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+import time
 
 logging.basicConfig(
     filename=f'logs/log_{date.today()}.txt',
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(levelname)s - %(message)s',
     filemode='w'
 )
@@ -147,28 +155,66 @@ teams={
     }
 }
 
-class Stat_Cat(ABCMeta): # any flat class used to define a statistical category must inherit this
-    registry = []
+# base classes
 
-    def __new__(cls, name, bases, attrs):
-        # Create the class normally
-        new_cls = super().__new__(cls, name, bases, attrs)
+class Table:
+    def __init__(self,category,soup):
+        logging.info(f'\nCreating dataframe for {category.cat}')
+        for k,v in category.__dict__.items():
+            if not k.startswith('__'):
+                setattr(self,k,v)
+        self.df=ExtractTable(soup,self.id).fillna(0).replace('',0)
 
-        # Skip the base abstract class
-        if not attrs.get('__abstractmethods__', False):
-            # Enforce required attributes
-            required_attrs = ['id', 'expected_cols', 'cat']
-            for attr in required_attrs:
-                if not hasattr(new_cls, attr):
-                    raise TypeError(f"Class {name} must define '{attr}'")
+        logging.debug('Shapecheck in progress...')
+        if self.cat!='defense':
+            self.shapecheck()
 
-            # Register the concrete class
-            Stat_Cat.registry.append(new_cls)
+    def shapecheck(self):
+        logging.debug('Conducting shapecheck.')
+        actual_cols=set(self.df.columns)
+        expected=set(self.expected_cols.keys())
+        self.missing_cols=expected-actual_cols
+        if self.missing_cols:
+            logging.critical(f'Shapecheck failed. The table is missing the following columns: {self.missing_cols}.')
+            raise MissingCols
+        
+        leftover_cols=actual_cols-expected
+        
+        if leftover_cols:
+            logging.warning(f'Shapecheck succeeded, however there are more columns than expected. Unexpected columns: {leftover_cols}. These will be retained.')
 
-        return new_cls
+    def shapecheck(self):
+        logging.debug('Conducting shapecheck.')
+        actual_cols=set(self.df.columns)
+        logging.info(self.df)
+        expected=set(self.expected_cols.keys())
+        self.missing_cols=expected-actual_cols
+        if self.missing_cols:
+            logging.critical(f'Shapecheck failed. The table is missing the following columns: {self.missing_cols}. Closing program.')
+            raise MissingCols
+        
+        leftover_cols=actual_cols-expected
+        
+        if leftover_cols:
+            logging.warning(f'Shapecheck succeeded, however there are more columns than expected. Unexpected columns: {leftover_cols}. These will be retained.')
+
+    def typecheck(self):
+        for col in self.df.columns:
+            expectedtype=self.expected_cols[col]
+            actualtype=self.df[col].dtypes
+            if expectedtype==actualtype:
+                logging.debug('Typecheck succeeded')
+                continue
+            else:
+                logging.debug(f'{col} failed typecheck. Expected type: {expectedtype}. Actual type: {actualtype}. Attempting conversion...')
+                try:
+                    self.df[col]=self.df[col].astype(expectedtype)
+                    logging.debug('Successfully converted to expected type.')
+                except Exception as e:
+                    logging.error(f'Unable to convert{col}- {e}')
 
 class HTML_Extraction(ABC):
-    """All classes that will be used for settings in the table class must inherit this."""
+    """All classes that will interact with beautifulsoup must inherit this."""
     @property
     @abstractmethod
     def id(self):
@@ -200,6 +246,174 @@ class FactDetails(HTML_Extraction):
     def stat_lookup(self):
         """Dictionary of all stats that will be imported, along with their corresponding id."""
         raise NotImplementedError()
+
+class MissingCols(Exception):
+    pass
+
+class Stat_Cat(ABCMeta): # any flat class used to define a statistical category must inherit this
+    registry = []
+
+    def __new__(cls, name, bases, attrs):
+        # Create the class normally
+        new_cls = super().__new__(cls, name, bases, attrs)
+
+        # Skip the base abstract class
+        if not attrs.get('__abstractmethods__', False):
+            # Enforce required attributes
+            required_attrs = ['id', 'expected_cols', 'cat']
+            for attr in required_attrs:
+                if not hasattr(new_cls, attr):
+                    raise TypeError(f"Class {name} must define '{attr}'")
+
+            # Register the concrete class
+            Stat_Cat.registry.append(new_cls)
+
+        return new_cls
+
+# orchestrators
+
+class HTML_Layer:
+    def __init__(self,year,settings):
+        try:
+            self.year=year
+            self.team_htmls={}
+            self.roster_htmls={}
+            self.week_htmls={}
+
+            service = Service(ChromeDriverManager().install())
+            options = Options()
+            options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--enable-unsafe-swiftshader")
+            options.add_argument("--log-level=3")
+            options.add_argument("window-size=1920,1080")
+            options.add_argument("--ignore-certificate-errors")
+            self.driver = webdriver.Chrome(service=service, options=options)
+
+            if settings.scrape_teams==True or settings.scrape_rosters==True:
+                self.extract_teams()
+
+            if settings.scrape_games==True:
+                for week in range(settings.start_week,settings.end_week):
+                    self.week_htmls[week]=[]
+                    self.url=f'https://www.pro-football-reference.com/years/{year}/week_{week}.htm'
+                    week_html=self.load_page()
+                    soup=BeautifulSoup(week_html,'html.parser')
+                    week_games=soup.find_all('div',class_='game_summaries')
+                    if len(week_games)==2:
+                        week_games=week_games[1]
+                    else:
+                        week_games=week_games[0]
+
+                    games=week_games.find_all('div',class_='game_summary expanded nohover')
+
+                    games=games[:1]
+
+                    for game in games:
+                        game_link=game.find('td',class_='right gamelink')
+                        link=game_link.find('a')['href']
+                        self.url=f'https://www.pro-football-reference.com{link}'
+                        html=self.load_page()
+                        self.week_htmls[week].append(html)
+        finally:
+            self.driver.quit()
+            logging.info('Webdriver sucessfully closed.')
+
+    def extract_teams(self):
+        for team in teams:
+            dicref=teams[team]
+            base_url=f'https://www.pro-football-reference.com/teams/{dicref['url']}/'
+            team_abbr=dicref['abbr']
+            if self.settings.scrape_teams==True:
+                self.url=base_url+f'{self.year}_roster.htm'
+                roster_html=self.load_page()
+                self.roster_htmls[team_abbr]=roster_html
+            if self.setting.scrape_rosers==True:
+                self.url=base_url+f'{self.year}.htm'
+                team_html=self.load_page()
+                self.team__htmls[team_abbr]=team_html
+
+    def load_page(self,attempt=1,max_attempts=3):
+        logging.info(f'attempting to extract html for {self.url}')
+        try:
+            self.driver.get(self.url)
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        except Exception as e:
+            if attempt<max_attempts:
+                logging.warning(f'Attempt {attempt} failed- reattempting.')
+                return self.load_page(self.url,attempt+1)
+            else:
+                logging.error(f'Unable to extract {self.url}- attempt 3 failed.')
+                raise ExtractionFailed
+        try:
+            WebDriverWait(self.driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "table")))
+        except:
+            logging.error('Webdriver timed out while waiting for the element.')
+            raise Exception
+        logging.info(f'Extraction successful\n\n')
+        time.sleep(6) # ensures compliance with PFR's max of 10 requests per minute
+        return self.driver.page_source
+
+class Season:
+    def __init__(self,year,start_week=1,end_week=18,scrape_players=True,scrape_teams=True,scrape_games=True):
+        if end_week>18:
+            logging.debug('End week cannot be greater than 18- setting to 18.')
+            end_week=18
+
+        end_week+=1
+        
+        settings=Scraper_Settings(scrape_players,scrape_teams,scrape_games,start_week,end_week)
+        self.htmls=HTML_Layer(year,settings)
+
+        if scrape_players is True:
+            Players=DIM_Players(year)
+            self.teamref=Players.df
+        
+        self.year=year
+        self.weeks=[]
+        
+        for week in range(start_week,end_week):
+            htmls=self.htmls.week_htmls[week]
+            week_obj=Week(week,year,htmls)
+            self.weeks.append(week_obj)
+
+        fact_tables=[]
+        dim_games_tables=[]
+
+        for week in self.weeks:
+            week.create_games()
+            week.create_tables()
+            fact_tables.append(week.fact_stats)
+            dim_games_tables.append(week.dim_games)
+
+        self.FACT_Stats=pd.concat(fact_tables)
+        self.DIM_Games=pd.concat(dim_games_tables)
+        
+        self.substitute_player_id(self.FACT_Stats,self.teamref)
+        
+        self.teamref=self.teamref.drop_duplicates(subset=['Player_ID'])
+        self.teamref.drop(columns=['Team'],inplace=True)
+
+        with pd.ExcelWriter('New_Excel_Test.xlsx',mode='w') as writer:
+            self.FACT_Stats.to_excel(writer,sheet_name='FACT_Stats',index=False)
+            self.DIM_Games.to_excel(writer,sheet_name='DIM_Games',index=False)
+            self.teamref.to_excel(writer,sheet_name='DIM_Players',index=False)
+
+
+    def substitute_player_id(self,fact_table,player_table):
+        fact_table=fact_table.merge(
+            player_table[['Name','Team','Player_ID']],
+            how='left',
+            left_on=['Player','Tm'],
+            right_on=['Name','Team']
+        )
+        fact_table.drop(columns=['Player','Name','Team'],inplace=True)
+        fact_table=fact_table[['Player_ID','Tm','Game_id','Stat','Value']]
+        self.FACT_Stats=fact_table
+
+# constants
 
 class Passing(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Cmp':np.int64,'Att':np.int64,'Yds':np.int64,'1D':np.int64,'1D%':np.float64,'IAY':np.int64,'IAY/PA':np.float64,'CAY':np.int64,'CAY/Cmp':np.float64,'CAY/PA':np.float64,'YAC':np.int64,'YAC/Cmp':np.float64,'Drops':np.int64,'Drop%':np.float64,'BadTh':np.int64,'Bad%':np.float64,'Sk':np.int64,'Bltz':np.int64,'Hrry':np.int64,'Hits':np.int64,'Prss':np.int64,'Prss%':np.float64,'Scrm':np.int64,'Yds/Scr':np.float64}
@@ -282,31 +496,8 @@ class Rushing(metaclass=Stat_Cat):
         'Att/Br':'R10'
     }
 
-class Defense_Table(Fact):
-    def __init__(self,soup,category):
-        self.soup=soup
-        super().__init__(soup,category)
-
-        box_1=self.df.iloc[:,:2]
-        box_2=self.df.iloc[:,2:7].rename(columns={'Yds':'int_Yds','TD':'int_TD'})
-        box_3=self.df.iloc[:,7:]
-
-        self.base_defense=pd.concat([box_1,box_2,box_3],axis=1)
-
-        advanced_stats=self.get_advanced_stats()
-
-        self.df=pd.merge(self.base_defense,advanced_stats,on=['Player','Tm'],how='outer').fillna(0)
-
-        self.df = self.df[self.df['Player'] != 'Player']
-
-    def get_advanced_stats(self):
-        advanced=Table(self.soup,Advanced_Defense)
-        advanced.df.drop(columns=['Int','Sk','Comb'],inplace=True)
-        advanced.df.rename(columns={'Yds':'Yds_Allowed','TD':'TD_Allowed'},inplace=True)
-        return advanced.df
-
 class Defense(metaclass=Stat_Cat):
-    expected_cols={'Player':object,'Tm':object,'Int':np.int64,'int_Yds':np.int64,'int_TD':np.int64,'Lng':np.int64,'PD':np.int64,'Sk':np.float64,'Comb':np.int64,'Solo':np.int64,'Ast':np.int64,'TFL':np.int64,'QBHits':np.int64,'FR':np.int64,'Yds':np.int64,'TD':np.int64,'FF':np.int64,'Tgt':np.int64,'Cmp':np.int64,'Cmp%':np.float64,'Yds_Allowed':np.int64,'Yds/Cmp':np.float64,'Yds/Tgt':np.float64,'TD_Allowed':np.int64,'Rat':np.float64,'DADOT':np.float64,'Air':np.float64,'YAC':np.int64,'Bltz':np.int64,'Hrry':np.int64,'QBKD':np.int64,'Sk':np.int64,'Prss':np.int64,'Comb':np.int64,'MTkl':np.int64,'MTkl%':np.float64}
+    expected_cols={'Player':object,'Tm':object,'Int':np.int64,'int_Yds':np.int64,'int_TD':np.int64,'Lng':np.int64,'PD':np.int64,'Sk':np.float64,'Comb':np.int64,'Solo':np.int64,'Ast':np.int64,'TFL':np.int64,'QBHits':np.int64,'FR':np.int64,'Yds':np.int64,'TD':np.int64,'FF':np.int64}
     value_vars=['Int','int_Yds','int_TD','Lng','PD','Sk','Comb','Solo','Ast','TFL','QBHits','FR','Yds','TD','FF','Tgt','Cmp','Cmp%','Yds','Yds/Cmp','Yds/Tgt','TD','Rat','DADOT','Air','YAC','Bltz','Hrry','QBKD','Sk','Prss','Comb','MTkl','MTkl%']
     id='player_defense'
     cat='defense'
@@ -351,8 +542,71 @@ class Defense(metaclass=Stat_Cat):
 
 class Advanced_Defense(HTML_Extraction): # DO NOT add the stat_cat metaclass to this. This is to set the extraction to be added into the defense table.
     id='defense_advanced'
-    expected_cols=['Player','Tm','Int','Tgt','Cmp','Cmp%','Yds','Yds/Cmp','Yds/Tgt','TD','Rat','DADOT','Air','YAC','Bltz','Hrry','QBKD','Sk','Prss','Comb','MTkl','MTkl%']
+
+    cols=['Player','Tm','Int','Tgt','Cmp','Cmp%','Yds','Yds/Cmp','Yds/Tgt','TD','Rat','DADOT','Air','YAC','Bltz','Hrry','QBKD','Sk','Prss','Comb','MTkl','MTkl%']
+    expected_cols={col:None for col in cols}
+
     cat='advanced defense'
+
+# functions
+
+class Fact(Table):
+    def __init__(self,soup,category):
+        logging.info(f'Extracting {category.cat} data...')
+        for k,v in category.__dict__.items():
+            if not k.startswith('__'):
+                setattr(self,k,v)
+        super().__init__(category,soup)
+
+    def process(self):
+        super().__init__()
+        
+        self.df = self.df[self.df['Player'] != 'Player']
+
+        self.typecheck()
+
+        self.df=self.df.melt(id_vars=['Player','Tm'],value_vars=self.value_vars,var_name='Stat',value_name='Value')
+
+        self.df['Stat']=self.df['Stat'].map(self.stat_lookup)
+
+class Defense_Table(Fact):
+    def __init__(self,soup,category):
+        self.soup=soup
+        super().__init__(soup,category)
+
+        box_1=self.df.iloc[:,:2]
+        box_2=self.df.iloc[:,2:7].rename(columns={'Yds':'int_Yds','TD':'int_TD'})
+        box_3=self.df.iloc[:,7:]
+
+        self.base_defense=pd.concat([box_1,box_2,box_3],axis=1)
+
+        self.df=self.base_defense
+
+        self.shapecheck()
+
+        advanced_stats=self.get_advanced_stats()
+
+        self.df=pd.merge(self.base_defense,advanced_stats,on=['Player','Tm'],how='outer').fillna(0)
+
+        self.df = self.df[self.df['Player'] != 'Player']
+
+    def get_advanced_stats(self):
+        advanced=Table(Advanced_Defense,self.soup)
+        advanced.df.drop(columns=['Int','Sk','Comb'],inplace=True)
+        advanced.df.rename(columns={'Yds':'Yds_Allowed','TD':'TD_Allowed'},inplace=True)
+        return advanced.df
+
+# helpers
+
+class Scraper_Settings:
+    def __init__(self,rosters,teams,games,start_week,end_week):
+        self.scrape_rosters=rosters
+        self.scrape_teams=teams
+        self.scrape_games=games
+        self.start_week=start_week
+        self.end_week=end_week
+
+
 
 class Game:
     def __init__(self,soup,index,year,week):
@@ -410,192 +664,34 @@ class Game:
 
         self.Fact_Table=FactTable(soup,self)
 
-class Table:
-    def __init__(self,category):
-        logging.info(f'\nCreating dataframe for {category.cat}')
-        for k,v in category.__dict__.items():
-            if not k.startswith('__'):
-                setattr(self,k,v)
-        logging.debug(self.dict)
-        self.df=ExtractTable(self.soup,self.id).fillna(0).replace('',0)
-
-        logging.debug('Shapecheck in progress...')
-        self.shapecheck()
-
-    def shapecheck(self):
-        logging.debug('Conducting shapecheck.')
-        actual_cols=set(self.df.columns)
-        expected=set(self.expected_cols.keys())
-        self.missing_cols=expected-actual_cols
-        if self.missing_cols:
-            logging.critical(f'Shapecheck failed. The table is missing the following columns: {self.missing_cols}.')
-            raise MissingCols
-        
-        leftover_cols=actual_cols-expected
-        
-        if leftover_cols:
-            logging.warning(f'Shapecheck succeeded, however there are more columns than expected. Unexpected columns: {leftover_cols}. These will be retained.')
-
-class FactTable:
+class FactTable(Table):
     def __init__(self,soup,game_details):
         logging.info('Extracting fact table data...')
-        passing=Fact(soup,Passing)
-        receiving=Fact(soup,Receiving)
-        rushing=Fact(soup,Rushing)
-        defense=Defense_Table(soup,Defense)
-
-        #print(receiving.df)
-
-        categories=[passing,receiving,rushing,defense]
-        dataframes=[]
         
-        for cat in categories:
-            cat.process()
-            dataframes.append(cat.df)
+        dataframes=[]
 
-        self.df=pd.concat(dataframes)
+        for cat_cls in Stat_Cat.registry:
+            if cat_cls.cat=='defense':
+                instance=Defense_Table(soup,cat_cls)
+            else:
+                instance=Fact(soup,cat_cls)
+            dataframes.append(instance.df)
+            print(instance.df)
+        return  
         self.df['Game_id']=self.df['Tm'].map(game_details.team_tags)
         self.df=self.df[['Player','Tm','Game_id','Stat','Value']]
 
-    def substitute_player_id(self,player_table):
-        self.df=self.df.merge(
-            player_table[['Name','Team','Player_ID']],
-            how='left',
-            left_on=['Player','Tm'],
-            right_on=['Name','Team']
-        )
-        self.df.drop(columns=['Player','Name','Team'],inplace=True)
-
-class Fact(Table):
-    def __init__(self,soup,category):
-        super().__init__(soup,category)
-
-    def process(self):
-            super().__init__()
-            
-            self.df = self.df[self.df['Player'] != 'Player']
-
-            self.typecheck()
-
-            self.df=self.df.melt(id_vars=['Player','Tm'],value_vars=self.value_vars,var_name='Stat',value_name='Value')
-
-            self.df['Stat']=self.df['Stat'].map(self.stat_lookup)
-
-    def substitute_player_id(self,player_table):
-        self.df=self.df.merge(
-            player_table[['Name','Team','Player_ID']],
-            how='left',
-            left_on=['Player','Tm'],
-            right_on=['Name','Team']
-        )
-        self.df.drop(columns=['Player','Name','Team'],inplace=True)
-
-class Defense_Table(Fact):
-    def __init__(self,soup,category):
-        self.soup=soup
-        super().__init__(soup,category)
-
-        box_1=self.df.iloc[:,:2]
-        box_2=self.df.iloc[:,2:7].rename(columns={'Yds':'int_Yds','TD':'int_TD'})
-        box_3=self.df.iloc[:,7:]
-
-        advanced_stats=self.get_advanced_stats()
-
-        self.df=pd.concat([box_1,box_2,box_3],axis=1)
-
-        self.df = self.df[self.df['Player'] != 0]
-
-        self.df=pd.merge(self.df,advanced_stats,on=['Player','Tm'],how='outer').fillna(0)
-
-    def get_advanced_stats(self):
-        df=ExtractTable(self.soup,'defense_advanced').fillna(0).replace('',0)
-        df.drop(columns=['Int','Sk','Comb'],inplace=True)
-        df.rename(columns={'Yds':'Yds_Allowed','TD':'TD_Allowed'},inplace=True)
-        return df
-
-class Season:
-    def __init__(self,year,start_week=1,end_week=18,scrape_players=True):
-        if scrape_players is True:
-            pass
-            Players=DIM_Players(year)
-            self.teamref=Players.df
-
-        if end_week>18:
-            logging.debug('End week cannot be greater than 18- setting to 18.')
-            end_week=18
-        self.year=year
-        self.weeks=[]
-        for week in range(start_week,end_week+1):
-            week_obj=Week(week,year)
-            self.weeks.append(week_obj)
-        
-        try:
-            for week in self.weeks:
-                week.extract_htmls()
-
-        finally:
-            logging.info('\n\nClosing webdriver...\n')
-            #driver.quit()
-
-        self.weeks.append(week_obj)
-
-        fact_tables=[]
-        dim_games_tables=[]
-
-        for week in self.weeks:
-            week.create_games()
-            week.create_tables()
-            fact_tables.append(week.fact_stats)
-            dim_games_tables.append(week.dim_games)
-
-        self.FACT_Stats=pd.concat(fact_tables)
-        self.DIM_Games=pd.concat(dim_games_tables)
-        
-        self.substitute_player_id(self.FACT_Stats,self.teamref)
-        
-        self.teamref=self.teamref.drop_duplicates(subset=['Player_ID'])
-        self.teamref.drop(columns=['Team'],inplace=True)
-
-        with pd.ExcelWriter('New_Excel_Test.xlsx',mode='w') as writer:
-            self.FACT_Stats.to_excel(writer,sheet_name='FACT_Stats',index=False)
-            self.DIM_Games.to_excel(writer,sheet_name='DIM_Games',index=False)
-            self.teamref.to_excel(writer,sheet_name='DIM_Players',index=False)
-
-
-    def substitute_player_id(self,fact_table,player_table):
-        fact_table=fact_table.merge(
-            player_table[['Name','Team','Player_ID']],
-            how='left',
-            left_on=['Player','Tm'],
-            right_on=['Name','Team']
-        )
-        fact_table.drop(columns=['Player','Name','Team'],inplace=True)
-        fact_table=fact_table[['Player_ID','Tm','Game_id','Stat','Value']]
-        self.FACT_Stats=fact_table
-
 class Week:
-    def __init__(self,week,year):
+    def __init__(self,week,year,htmls):
         self.week=week
         self.year=year
-        self.week_url=f'https://www.pro-football-reference.com/years/{year}/week_{week}.htm'
-        #html=load_page(self.week_url)
-        #self.soup=BeautifulSoup(html,'html.parser')
+        self.htmls=htmls
 
         self.games=[]
         self.dim_game_rows=[]
         self.fact_tables=[]
 
-        self.links=[]
-        self.htmls=[]
-
-        with open('full_week_test_games_2.txt','r',encoding='utf-8') as f:
-            self.html_dic=json.load(f)
-
-
-        #self.extract_links()
-
     def create_tables(self):
-        print(len(self.games))
         for game in self.games:
             print(game.Fact_Table.df)
             print('\n\ngame should have printed\n\n')
@@ -609,32 +705,10 @@ class Week:
         self.fact_stats=pd.concat(self.fact_tables).reset_index(drop=True)
 
     def create_games(self):
-        print(len(self.htmls))
         for i,html in enumerate(self.htmls,start=1):
             soup=BeautifulSoup(html,'html.parser')
             game=Game(soup,i,self.year,self.week)
             self.games.append(game)
-
-    def extract_htmls(self):
-        self.htmls=self.html_dic[str(self.week)]
-        return
-        for link in self.links:
-            page_html=load_page(link)
-            self.htmls.append(page_html)
-
-    def extract_links(self):
-        week_games=self.soup.find_all('div',class_='game_summaries')
-        if len(week_games)==2:
-            week_games=week_games[1]
-        else:
-            week_games=week_games[0]
-
-        games=week_games.find_all('div',class_='game_summary expanded nohover')
-
-        for game in games:
-            game_link=game.find('td',class_='right gamelink')
-            link=game_link.find('a')['href']
-            self.links.append(f'https://www.pro-football-reference.com{link}')
 
 class Dimension(Table):
     def __init__(self,soup,category):
@@ -679,9 +753,6 @@ class Players_Table(Dimension,DIM_Players_Mixin):
         my_list=df['Player'].tolist()
         return my_list
 
-class MissingCols(Exception):
-    pass
-
 class DIM_Players(DIM_Players_Mixin):
     def __init__(self,year):
         self.year=year
@@ -710,101 +781,4 @@ class DIM_Players(DIM_Players_Mixin):
         self.df = self.df[cols]
 
         logging.info(self.df)
-
-class HTML_Layer:
-    def __init__(self,year):
-        self.team_htmls={}
-        self.roster_htmls={}
-        self.week_htmls={}
-
-        self.extract_teams()
-
-        for week in range(settings.start_week,settings.end_week):
-            self.week_htmls[week]=[]
-            self.url=f'https://www.pro-football-reference.com/years/{year}/week_{week}.htm'
-            week_html=self.load_page()
-            soup=BeautifulSoup(week_html,'html.parser')
-            week_games=self.soup.find_all('div',class_='game_summaries')
-            if len(week_games)==2:
-                week_games=week_games[1]
-            else:
-                week_games=week_games[0]
-
-            games=week_games.find_all('div',class_='game_summary expanded nohover')
-
-            for game in games:
-                game_link=game.find('td',class_='right gamelink')
-                link=game_link.find('a')['href']
-                self.url=f'https://www.pro-football-reference.com{link}'
-                html=self.load_page()
-                self.week_htmls[week].append(html)
-
-
-
-        def extract_teams(self):
-            for team in teams:
-                dicref=teams[team]
-                base_url=f'https://www.pro-football-reference.com/teams/{dicref['url']}/'
-                self.url=base_url+f'{year}_roster.htm'
-                roster_html=self.load_page()
-                self.url=base_url+f'{year}.htm'
-                team_html=self.load_page()
-
-                team_abbr=dicref['abbr']
-
-                self.team__htmls[team_abbr]=team_html
-                self.roster_htmls[team_abbr]=roster_html
-
-        def load_page(self,attempt=1,max_attempts=3):
-            logging.info(f'attempting to extract html for {self.url}')
-
-            if 'driver' not in globals() or driver is None:
-                    logging.info('No active driver detected, starting new webdriver...')
-                    service = Service(ChromeDriverManager().install())
-                    options = Options()
-                    options.add_argument("--headless")
-                    options.add_argument("--disable-gpu")
-                    options.add_argument("--no-sandbox")
-                    options.add_argument("--disable-dev-shm-usage")
-                    options.add_argument("--enable-unsafe-swiftshader")
-                    options.add_argument("--log-level=3")
-                    options.add_argument("window-size=1920,1080")
-                    options.add_argument("--ignore-certificate-errors")
-                    driver = webdriver.Chrome(service=service, options=options)
-            try:
-                driver.get(url)
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            except Exception as e:
-                if attempt<max_attempts:
-                    logging.warning(f'Attempt {attempt} failed- reattempting.')
-                    return load_page(url,attempt+1)
-                else:
-                    logging.error(f'Unable to extract {url}- attempt 3 failed.')
-                    raise ExtractionFailed
-            try:
-                WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "table")))
-            except:
-                logging.error('Webdriver timed out while waiting for the element.')
-                raise Exception
-            logging.info(f'Extraction successful\n\n')
-            time.sleep(6) # ensures compliance with PFR's max of 10 requests per minute
-            return driver.page_source 
-
-class Fact_Stats_Table(Table,Fact_Mixin):
-    def __init__(self,soup,game_details):
-        logging.info('Extracting fact table data...')
-        
-        dataframes=[]
-
-        for cat_cls in Stat_Registry.registry:
-            if cat_cls.cat=='defense':
-                instance=Defense_Table(soup,cat_cls)
-            else:
-                instance=Fact(soup,cat_cls)
-            dataframes.append(instance.df)
-
-        self.df=pd.concat(dataframes)
-        self.df['Game_id']=self.df['Tm'].map(game_details.team_tags)
-        self.df=self.df[['Player','Tm','Game_id','Stat','Value']]
-
-
+    
