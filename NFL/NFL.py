@@ -366,7 +366,14 @@ class HTML_Layer:
         time.sleep(6) # ensures compliance with PFR's max of 10 requests per minute
         return self.driver.page_source
 
-class Season:
+class Season_Mixins:
+    def extract_from_html_list(self, items, lis):
+        for key in items:
+            line=lis[items[key]]
+            val=line.get_text().strip()
+            setattr(self, key, val)
+
+class Season(Season_Mixins):
     def __init__(self,year,start_week=1,end_week=18,scrape_players=True,scrape_teams=True,scrape_games=True):
         logging.info(f'\n\nStarting process for the {year} NFL Season.')
         if end_week>18:
@@ -425,6 +432,35 @@ class Season:
         fact_table.drop(columns=['Player','Name','Team'],inplace=True)
         fact_table=fact_table[['Player_ID','Tm','Game_id','Stat','Value']]
         self.FACT_Stats=fact_table
+
+class Week:
+    def __init__(self,week,year,htmls):
+        self.week=week
+        self.year=year
+        self.htmls=htmls
+
+        self.games=[]
+        self.dim_game_rows=[]
+        self.fact_tables=[]
+
+    def create_tables(self):
+        for game in self.games:
+            print(game.Fact_Table.df)
+            print('\n\ngame should have printed\n\n')
+            self.fact_tables.append(game.Fact_Table.df)
+            for row in game.game_rows:
+                self.dim_game_rows.append(row)
+
+        dim_game_columns=['Team_Tag','Game_id','Team','Opponent','Game_Date','Game_Time','Stadium']
+        self.dim_games=pd.DataFrame(self.dim_game_rows,columns=dim_game_columns)
+
+        self.fact_stats=pd.concat(self.fact_tables).reset_index(drop=True)
+
+    def create_games(self):
+        for i,html in enumerate(self.htmls,start=1):
+            soup=BeautifulSoup(html,'html.parser')
+            game=Game(soup,i,self.year,self.week)
+            self.games.append(game)
 
 # constants
 
@@ -563,6 +599,78 @@ class Advanced_Defense(HTML_Extraction): # DO NOT add the stat_cat metaclass to 
 
 # functions
 
+class Game_Details:
+    date=0
+    time=1
+    stadium=2
+
+class Game_Dets:
+    def __init__(self,soup):
+
+        for detail in details:
+            self.detail=details
+
+        self.soup=soup
+
+        scorebox=soup.find('div',class_='scorebox')
+        self.sects=scorebox.find_all('strong')
+
+        away_team_box=self.sects[0]
+        away_team=away_team_box.get_text().strip()
+
+        home_team_box=sects[2]
+        home_team=home_team_box.get_text().strip()
+
+        home_team_key=teams[home_team]['abbr'].upper()
+        away_team_key=teams[away_team]['abbr'].upper()
+
+        self.team_tags={
+            home_team_key:f'{self.game_id}H',
+            away_team_key:f'{self.game_id}A'
+        }
+
+        game_details=soup.find('div',class_='scorebox_meta')
+        game_details=game_details.find_all('div')
+        self.game_date=game_details[0].get_text().strip()
+
+        time_box=game_details[1].get_text().strip()
+        self.game_time=time_box.split(':',1)[1].strip()
+
+        stadium_box=game_details[2].get_text().strip()
+        self.stadium=stadium_box.split(':',1)[1].strip()
+
+        game_info_box=soup.find('table',id='game_info')
+        
+        rows=game_info_box.find_all('tr')
+        rows=rows[1:]
+        
+        roofrow=rows[1]
+        self.roof=roofrow.find('td',class_='center').get_text()
+        
+        surfacerow=rows[2]
+        self.surface=surfacerow.find('td',class_='center').get_text()
+        
+        reftable=soup.find('table',id='officials')
+        rows=reftable.find_all('tr')
+        row=rows[1]
+        self.ref=row.find('td',{'data-stat':'name'}).get_text()
+
+class Game:
+    def __init__(self,soup,index,year,week):
+        self.game_id=f'{week}{index}{year}'
+
+        details=Game_Dets(soup)
+
+        base_list=[self.game_id,,details.game_date,details.game_time,details.stadium,details.ref,details.surface,details.roof]
+
+        home_list = [f'{self.game_id}H', details.home_team_key, details.away_team_key] + base_list
+        away_list = [f'{self.game_id}A', details.away_team_key, details.home_team_key] + base_list
+        self.game_rows=[home_list,away_list]
+
+        self.df=pd.DataFrame(self.game_rows,columns=['Game_ID','Team','Opponent','Game','Date','Time','Stadium','Ref','Surface','Roof'])
+
+        self.Fact_Table=FactTable(soup,self)
+
 # Fact Table functionality
 
 class Fact(Table): #functionality
@@ -576,9 +684,7 @@ class Fact(Table): #functionality
         except MissingCols:
             raise MissingCols
 
-    def process(self):
-        super().__init__()
-        
+    def pivot(self):
         self.df = self.df[self.df['Player'] != 'Player']
 
         self.typecheck()
@@ -586,6 +692,8 @@ class Fact(Table): #functionality
         self.df=self.df.melt(id_vars=['Player','Tm'],value_vars=self.value_vars,var_name='Stat',value_name='Value')
 
         self.df['Stat']=self.df['Stat'].map(self.stat_lookup)
+
+# Fact_Stats
 
 class Defense_Table(Fact): #extension
     def __init__(self,soup,category):
@@ -617,7 +725,7 @@ class Defense_Table(Fact): #extension
         advanced.df.rename(columns={'Yds':'Yds_Allowed','TD':'TD_Allowed'},inplace=True)
         return advanced.df
 
-class FactTable(Table): # orchestration
+class Fact_Table(Table): # orchestration
     def __init__(self,soup,game_details):
         logging.info('Extracting fact table data...')
         
@@ -628,120 +736,16 @@ class FactTable(Table): # orchestration
                 instance=Defense_Table(soup,cat_cls)
             else:
                 instance=Fact(soup,cat_cls)
+            instance.df.pivot()
             dataframes.append(instance.df)
+        self.df=pd.concat(dataframes)
 
-        return  
         self.df['Game_id']=self.df['Tm'].map(game_details.team_tags)
         self.df=self.df[['Player','Tm','Game_id','Stat','Value']]
 
-# helpers
+# Dimension Tables
 
-class Scraper_Settings:
-    def __init__(self,rosters,teams,games,start_week,end_week):
-        self.scrape_rosters=rosters
-        self.scrape_teams=teams
-        self.scrape_games=games
-        self.start_week=start_week
-        self.end_week=end_week
-
-class Game:
-    def __init__(self,soup,index,year,week):
-        self.game_id=f'{week}{index}{year}'
-        scorebox=soup.find('div',class_='scorebox')
-        sects=scorebox.find_all('strong')
-
-        away_team_box=sects[0]
-        away_team=away_team_box.get_text().strip()
-
-        home_team_box=sects[2]
-        home_team=home_team_box.get_text().strip()
-
-        home_team_key=teams[home_team]['abbr'].upper()
-        away_team_key=teams[away_team]['abbr'].upper()
-
-        game_details=soup.find('div',class_='scorebox_meta')
-        game_details=game_details.find_all('div')
-        self.game_date=game_details[0].get_text().strip()
-
-        time_box=game_details[1].get_text().strip()
-        self.game_time=time_box.split(':',1)[1].strip()
-
-        stadium_box=game_details[2].get_text().strip()
-        self.stadium=stadium_box.split(':',1)[1].strip()
-
-        game_info_box=soup.find('table',id='game_info')
-        
-        rows=game_info_box.find_all('tr')
-        rows=rows[1:]
-        
-        roofrow=rows[1]
-        roof=roofrow.find('td',class_='center').get_text()
-        
-        surfacerow=rows[2]
-        surface=surfacerow.find('td',class_='center').get_text()
-        
-        reftable=soup.find('table',id='officials')
-        rows=reftable.find_all('tr')
-        row=rows[1]
-        ref=row.find('td',{'data-stat':'name'}).get_text()
-
-        print(ref)
-
-        self.team_tags={
-            home_team_key:f'{self.game_id}H',
-            away_team_key:f'{self.game_id}A'
-        }
-
-        home_list=[f'{self.game_id}H',self.game_id,home_team_key,away_team_key,self.game_date,self.game_time,self.stadium]
-        away_list=[f'{self.game_id}A',self.game_id,away_team_key,home_team_key,self.game_date,self.game_time,self.stadium]
-        self.game_rows=[home_list,away_list]
-
-        self.df=pd.DataFrame(self.game_rows,columns=['Game_ID','Game','Team','Opponent','Date','Time','Stadium'])
-
-        self.Fact_Table=FactTable(soup,self)
-
-class Week:
-    def __init__(self,week,year,htmls):
-        self.week=week
-        self.year=year
-        self.htmls=htmls
-
-        self.games=[]
-        self.dim_game_rows=[]
-        self.fact_tables=[]
-
-    def create_tables(self):
-        for game in self.games:
-            print(game.Fact_Table.df)
-            print('\n\ngame should have printed\n\n')
-            self.fact_tables.append(game.Fact_Table.df)
-            for row in game.game_rows:
-                self.dim_game_rows.append(row)
-
-        dim_game_columns=['Team_Tag','Game_id','Team','Opponent','Game_Date','Game_Time','Stadium']
-        self.dim_games=pd.DataFrame(self.dim_game_rows,columns=dim_game_columns)
-
-        self.fact_stats=pd.concat(self.fact_tables).reset_index(drop=True)
-
-    def create_games(self):
-        for i,html in enumerate(self.htmls,start=1):
-            soup=BeautifulSoup(html,'html.parser')
-            game=Game(soup,i,self.year,self.week)
-            self.games.append(game)
-
-class Dimension(Table):
-    def __init__(self,soup,category):
-        for k,v in category.__dict__.items():
-            if not k.startswith('__'):
-                setattr(self,k,v)
-        self.df=ExtractTable(soup,self.id).fillna(0).replace('',0)
-
-    def process(self):
-        super().__init__()
-        
-        self.df = self.df[self.df['Player'] != 'Player']
-
-        self.typecheck()
+# DIM_Players
 
 class Roster(HTML_Extraction):
     id='roster'
@@ -793,3 +797,37 @@ class DIM_Players(DIM_Players_Mixin):
         self.df = self.df[cols]
 
         logging.info(self.df)
+
+# DIM_Teams
+
+class Team(Table):
+    def __init__(self,soup,team,htmls):
+        team_abbr=teams[team]['abbr']
+        html=team_htmls[team_abbr]
+        soup=BeautifulSoup(html,'html.parser')
+        team_dets=soup.find('div',{'data-template':'Partials/Teams/Summary'})
+        details=team_dets.find_all('p')
+        head_coach_line=details[1]
+        head_coach=head_coach_line.find('a').get_text()
+        oc_line=details[7]
+        oc=oc_line.find('a').get_text()
+        dc_line=details[8]
+        dc=dc_line.find('a').get_text()
+        owner_line=details[12]
+        owner=owner_line.find('a').get_text()
+        sos_line=details[5]
+        sos_line_dets=sos_line.find_all('a')
+        sos_box=sos_line_dets[1]
+        sos=sos_box.find('a').get_text()
+
+# helpers
+
+class Scraper_Settings:
+    def __init__(self,rosters,teams,games,start_week,end_week):
+        self.scrape_rosters=rosters
+        self.scrape_teams=teams
+        self.scrape_games=games
+        self.start_week=start_week
+        self.end_week=end_week
+
+
