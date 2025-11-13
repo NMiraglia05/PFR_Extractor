@@ -368,6 +368,7 @@ class HTML_Layer:
 
 class Season:
     def __init__(self,year,start_week=1,end_week=18,scrape_players=True,scrape_teams=True,scrape_games=True):
+        logging.info(f'\n\nStarting process for the {year} NFL Season.')
         if end_week>18:
             logging.debug('End week cannot be greater than 18- setting to 18.')
             end_week=18
@@ -375,9 +376,11 @@ class Season:
         end_week+=1
         
         settings=Scraper_Settings(scrape_players,scrape_teams,scrape_games,start_week,end_week)
+        logging.debug=(f'Settings for the scraper: {settings.__dict__()}')
         self.htmls=HTML_Layer(year,settings)
 
         if scrape_players is True:
+            logging.debug('Extracting player tables...')
             Players=DIM_Players(year)
             self.teamref=Players.df
         
@@ -560,13 +563,18 @@ class Advanced_Defense(HTML_Extraction): # DO NOT add the stat_cat metaclass to 
 
 # functions
 
-class Fact(Table):
+# Fact Table functionality
+
+class Fact(Table): #functionality
     def __init__(self,soup,category):
         logging.info(f'Extracting {category.cat} data...')
         for k,v in category.__dict__.items():
             if not k.startswith('__'):
                 setattr(self,k,v)
-        super().__init__(category,soup)
+        try:
+            super().__init__(category,soup)
+        except MissingCols:
+            raise MissingCols
 
     def process(self):
         super().__init__()
@@ -579,10 +587,13 @@ class Fact(Table):
 
         self.df['Stat']=self.df['Stat'].map(self.stat_lookup)
 
-class Defense_Table(Fact):
+class Defense_Table(Fact): #extension
     def __init__(self,soup,category):
         self.soup=soup
-        super().__init__(soup,category)
+        try:
+            super().__init__(soup,category)
+        except MissingCols: # defense table will fail shapecheck on import- shapecheck occurs after renaming duplicate columns
+            pass
 
         box_1=self.df.iloc[:,:2]
         box_2=self.df.iloc[:,2:7].rename(columns={'Yds':'int_Yds','TD':'int_TD'})
@@ -606,6 +617,23 @@ class Defense_Table(Fact):
         advanced.df.rename(columns={'Yds':'Yds_Allowed','TD':'TD_Allowed'},inplace=True)
         return advanced.df
 
+class FactTable(Table): # orchestration
+    def __init__(self,soup,game_details):
+        logging.info('Extracting fact table data...')
+        
+        dataframes=[]
+
+        for cat_cls in Stat_Cat.registry:
+            if cat_cls.cat=='defense':
+                instance=Defense_Table(soup,cat_cls)
+            else:
+                instance=Fact(soup,cat_cls)
+            dataframes.append(instance.df)
+
+        return  
+        self.df['Game_id']=self.df['Tm'].map(game_details.team_tags)
+        self.df=self.df[['Player','Tm','Game_id','Stat','Value']]
+
 # helpers
 
 class Scraper_Settings:
@@ -615,8 +643,6 @@ class Scraper_Settings:
         self.scrape_games=games
         self.start_week=start_week
         self.end_week=end_week
-
-
 
 class Game:
     def __init__(self,soup,index,year,week):
@@ -673,23 +699,6 @@ class Game:
         self.df=pd.DataFrame(self.game_rows,columns=['Game_ID','Game','Team','Opponent','Date','Time','Stadium'])
 
         self.Fact_Table=FactTable(soup,self)
-
-class FactTable(Table):
-    def __init__(self,soup,game_details):
-        logging.info('Extracting fact table data...')
-        
-        dataframes=[]
-
-        for cat_cls in Stat_Cat.registry:
-            if cat_cls.cat=='defense':
-                instance=Defense_Table(soup,cat_cls)
-            else:
-                instance=Fact(soup,cat_cls)
-            dataframes.append(instance.df)
-            print(instance.df)
-        return  
-        self.df['Game_id']=self.df['Tm'].map(game_details.team_tags)
-        self.df=self.df[['Player','Tm','Game_id','Stat','Value']]
 
 class Week:
     def __init__(self,week,year,htmls):
@@ -756,7 +765,6 @@ class Players_Table(Dimension,DIM_Players_Mixin):
         self.df['Starter']=self.df['Player'].isin(starters)
     
     def get_starters(self):
-        pass
         df=ExtractTable(self.soup,'starters')
         df['Player']=df['Player'].str.replace('*','').fillna(0)
         df=df[df['Pos'] != ''].reset_index(drop=True)
@@ -770,13 +778,7 @@ class DIM_Players(DIM_Players_Mixin):
         with open('full_week_test_rosters.txt', 'r', encoding='utf-8') as f:
             my_dict = json.load(f)
         for team in teams:
-            url_tag=teams[team]['url']
-            #url=f'https://www.pro-football-reference.com/teams/{url_tag}/{year}_roster.htm'
-            #try:
-            #    html=load_page(url)
-            #except ExtractionFailed:
-            #    continue
-            html=my_dict[url_tag.upper()]
+            html=htmls.roster_htmls[teams[team]['abbr']]
             soup=BeautifulSoup(html,'html.parser')
             table=Players_Table(soup,year)
             self.df=table.df.copy()  # ensure it's a copy
@@ -791,4 +793,3 @@ class DIM_Players(DIM_Players_Mixin):
         self.df = self.df[cols]
 
         logging.info(self.df)
-    
