@@ -273,7 +273,7 @@ class Stat_Cat(ABCMeta): # any flat class used to define a statistical category 
 # orchestrators
 
 class HTML_Layer:
-    def __init__(self,year,settings):
+    def __init__(self,settings):
         logging.info('Starting the html layer...\n')
         try:
             self.year=year
@@ -366,6 +366,13 @@ class HTML_Layer:
         time.sleep(6) # ensures compliance with PFR's max of 10 requests per minute
         return self.driver.page_source
 
+class default_pipeline_settings:
+    start_week=1
+    end_week=18
+    scrape_rosters=True
+    scrape_teams=True
+    scrape_games=True
+
 class Season_Mixins:
     def extract_from_html_list(self, items, lis):
         for key in items:
@@ -373,71 +380,65 @@ class Season_Mixins:
             val=line.get_text().strip()
             setattr(self, key, val)
 
+def run_pipeline(year):
+    settings=default_pipeline_settings
+    settings.year=year
+    htmls=HTML_Layer(settings)
+    obj=Season(htmls,settings)
+
 class Season(Season_Mixins):
-    def __init__(self,year,start_week=1,end_week=18,htmls=None,extract_htmls=True,scrape_players=True,scrape_teams=True,scrape_games=True):
+    def __init__(self,htmls,settings):
+        """
+        Args:
+            htmls: HTML data to process
+            settings: Settings object (required)
+        """
+        self.settings = settings
+        self.htmls = htmls
         logging.info(f'\n\nStarting process for the {year} NFL Season.')
-        if end_week>18:
+
+        if settings.end_week>18:
             logging.debug('End week cannot be greater than 18- setting to 18.')
-            end_week=18
+            settings.end_week=18
 
-        end_week+=1
-        
-        settings=Scraper_Settings(scrape_players,scrape_teams,scrape_games,start_week,end_week)
-        logging.debug(f'Settings for the scraper: {settings.__dict__}')
-        
-        if extract_htmls is True:
-            self.htmls=HTML_Layer(year,settings)
-        else:
-            self.htmls=htmls
+        settings.end_week+=1
 
-        if scrape_players is True:
+        start_week=settings.start_week
+        end_week=settings.end_week
+        self.htmls=htmls
+
+        if settings.scrape_rosters is True:
             logging.debug('Extracting player tables...')
             Players=DIM_Players(year)
             self.teamref=Players.df
         
+        self.teamref=self.teamref.drop_duplicates(subset=['Player_ID'])
+        self.teamref.drop(columns=['Team'],inplace=True)
+
         self.year=year
         self.weeks=[]
         
+        fact_tables=[]
+        dim_games_tables=[]
+
         for week in range(start_week,end_week):
             htmls=self.htmls.week_htmls[week]
             week_obj=Week(week,year,htmls)
             self.weeks.append(week_obj)
-
-        fact_tables=[]
-        dim_games_tables=[]
-
-        for week in self.weeks:
             week.create_games()
             week.create_tables()
-            fact_tables.append(week.fact_stats)
             dim_games_tables.append(week.dim_games)
+            week.substitute_player_id(self.teamref)
+
+        return
 
         self.FACT_Stats=pd.concat(fact_tables)
-        print(self.FACT_Stats)
         self.DIM_Games=pd.concat(dim_games_tables)
-        print(self.DIM_Games)
-        
-        self.substitute_player_id(self.FACT_Stats,self.teamref)
-        
-        self.teamref=self.teamref.drop_duplicates(subset=['Player_ID'])
-        self.teamref.drop(columns=['Team'],inplace=True)
 
-        with pd.ExcelWriter('New_Excel_Test.xlsx',mode='w') as writer:
-            self.FACT_Stats.to_excel(writer,sheet_name='FACT_Stats',index=False)
-            self.DIM_Games.to_excel(writer,sheet_name='DIM_Games',index=False)
-            self.teamref.to_excel(writer,sheet_name='DIM_Players',index=False)
-
-
-    def substitute_player_id(self,fact_table,player_table):
-        fact_table=fact_table.merge(
-            player_table[['Name','Team','Player_ID']],
-            how='left',
-            left_on=['Player','Tm'],
-            right_on=['Name','Team']
-        )
-        fact_table.drop(columns=['Player','Name','Team'],inplace=True)
-        fact_table=fact_table[['Player_ID','Tm','Game_id','Stat','Value']]
-        self.FACT_Stats=fact_table
+        #with pd.ExcelWriter('New_Excel_Test.xlsx',mode='w') as writer:
+        #    self.FACT_Stats.to_excel(writer,sheet_name='FACT_Stats',index=False)
+        #    self.DIM_Games.to_excel(writer,sheet_name='DIM_Games',index=False)
+        #    self.teamref.to_excel(writer,sheet_name='DIM_Players',index=False)
 
 class Week:
     def __init__(self,week,year,htmls):
@@ -465,6 +466,17 @@ class Week:
             soup=BeautifulSoup(html,'html.parser')
             game=Game(soup,i,self.year,self.week)
             self.games.append(game)
+
+    def substitute_player_id(self,player_table):
+        self.fact_stats=self.fact_stats.merge(
+            player_table[['Name','Team','Player_ID']],
+            how='left',
+            left_on=['Player','Tm'],
+            right_on=['Name','Team']
+        )
+        self.fact_stats.drop(columns=['Player','Name','Team'],inplace=True)
+        self.fact_stats=fact_table[['Player_ID','Tm','Game_id','Stat','Value']]
+        print(self.fact_stats)
 
 # constants
 
@@ -629,31 +641,40 @@ class Game_Dets:
             self.away_team_key:f'{game_id}A'
         }
 
-        game_details=soup.find('div',class_='scorebox_meta')
-        game_details=game_details.find_all('div')
-        self.game_date=game_details[0].get_text().strip()
+        game_details_area=soup.find('div',class_='scorebox_meta')
+        game_details_list=game_details_area.find_all('div')
 
-        time_box=game_details[1].get_text().strip()
+        self.extract_from_html_list(Game_Details,game_details_list)
+
+        #self.game_date=game_details[0].get_text().strip()
+
+        #time_box=game_details[1].get_text().strip()
         self.game_time=time_box.split(':',1)[1].strip()
 
-        stadium_box=game_details[2].get_text().strip()
+        #stadium_box=game_details[2].get_text().strip()
         self.stadium=stadium_box.split(':',1)[1].strip()
 
         game_info_box=soup.find('table',id='game_info')
         
-        rows=game_info_box.find_all('tr')
-        rows=rows[1:]
+        rows=game_info_box.find_all('td',class_='center'.{'data-stat':'stat'})
+        print(row[1])
+
+        #self.extract_from_html_list(Other_Game_Details,rows)
         
-        roofrow=rows[1]
+        #roofrow=rows[1]
         self.roof=roofrow.find('td',class_='center').get_text()
         
-        surfacerow=rows[2]
-        self.surface=surfacerow.find('td',class_='center').get_text()
+        #surfacerow=rows[2]
+        #self.surface=surfacerow.find('td',class_='center').get_text()
         
-        reftable=soup.find('table',id='officials')
-        rows=reftable.find_all('tr')
-        row=rows[1]
-        self.ref=row.find('td',{'data-stat':'name'}).get_text()
+        #reftable=soup.find('table',id='officials')
+        #rows=reftable.find_all('tr')
+        #row=rows[1]
+        #self.ref=row.find('td',{'data-stat':'name'}).get_text()
+
+class Other_Game_Details:
+    roof=1
+    surface=2
 
 class Game:
     def __init__(self,soup,index,year,week):
@@ -736,7 +757,7 @@ class Fact_Table(Table): # orchestration
                 instance=Defense_Table(soup,cat_cls)
             else:
                 instance=Fact(soup,cat_cls)
-            instance.long_now()
+            instance.()
             dataframes.append(instance.df)
         self.df=pd.concat(dataframes)
 
