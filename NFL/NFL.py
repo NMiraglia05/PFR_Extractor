@@ -19,7 +19,7 @@ import time
 
 logging.basicConfig(
     filename=f'logs/log_{date.today()}.txt',
-    level=logging.DEBUG,
+    level=logging.CRITICAL,
     format='%(levelname)s - %(message)s',
     filemode='w'
 )
@@ -374,7 +374,7 @@ class Season_Mixins:
             setattr(self, key, val)
 
 class Season(Season_Mixins):
-    def __init__(self,year,start_week=1,end_week=18,scrape_players=True,scrape_teams=True,scrape_games=True):
+    def __init__(self,year,start_week=1,end_week=18,htmls=None,extract_htmls=True,scrape_players=True,scrape_teams=True,scrape_games=True):
         logging.info(f'\n\nStarting process for the {year} NFL Season.')
         if end_week>18:
             logging.debug('End week cannot be greater than 18- setting to 18.')
@@ -383,8 +383,12 @@ class Season(Season_Mixins):
         end_week+=1
         
         settings=Scraper_Settings(scrape_players,scrape_teams,scrape_games,start_week,end_week)
-        logging.debug=(f'Settings for the scraper: {settings.__dict__()}')
-        self.htmls=HTML_Layer(year,settings)
+        logging.debug(f'Settings for the scraper: {settings.__dict__}')
+        
+        if extract_htmls is True:
+            self.htmls=HTML_Layer(year,settings)
+        else:
+            self.htmls=htmls
 
         if scrape_players is True:
             logging.debug('Extracting player tables...')
@@ -409,7 +413,9 @@ class Season(Season_Mixins):
             dim_games_tables.append(week.dim_games)
 
         self.FACT_Stats=pd.concat(fact_tables)
+        print(self.FACT_Stats)
         self.DIM_Games=pd.concat(dim_games_tables)
+        print(self.DIM_Games)
         
         self.substitute_player_id(self.FACT_Stats,self.teamref)
         
@@ -445,13 +451,11 @@ class Week:
 
     def create_tables(self):
         for game in self.games:
-            print(game.Fact_Table.df)
-            print('\n\ngame should have printed\n\n')
             self.fact_tables.append(game.Fact_Table.df)
             for row in game.game_rows:
                 self.dim_game_rows.append(row)
 
-        dim_game_columns=['Team_Tag','Game_id','Team','Opponent','Game_Date','Game_Time','Stadium']
+        dim_game_columns=['Team_Tag','Game_id','Team','Opponent','Game_Date','Game_Time','Stadium','ref','roof','surface']
         self.dim_games=pd.DataFrame(self.dim_game_rows,columns=dim_game_columns)
 
         self.fact_stats=pd.concat(self.fact_tables).reset_index(drop=True)
@@ -605,11 +609,7 @@ class Game_Details:
     stadium=2
 
 class Game_Dets:
-    def __init__(self,soup):
-
-        for detail in details:
-            self.detail=details
-
+    def __init__(self,soup,game_id):
         self.soup=soup
 
         scorebox=soup.find('div',class_='scorebox')
@@ -618,15 +618,15 @@ class Game_Dets:
         away_team_box=self.sects[0]
         away_team=away_team_box.get_text().strip()
 
-        home_team_box=sects[2]
+        home_team_box=self.sects[2]
         home_team=home_team_box.get_text().strip()
 
-        home_team_key=teams[home_team]['abbr'].upper()
-        away_team_key=teams[away_team]['abbr'].upper()
+        self.home_team_key=teams[home_team]['abbr'].upper()
+        self.away_team_key=teams[away_team]['abbr'].upper()
 
         self.team_tags={
-            home_team_key:f'{self.game_id}H',
-            away_team_key:f'{self.game_id}A'
+            self.home_team_key:f'{game_id}H',
+            self.away_team_key:f'{game_id}A'
         }
 
         game_details=soup.find('div',class_='scorebox_meta')
@@ -659,17 +659,17 @@ class Game:
     def __init__(self,soup,index,year,week):
         self.game_id=f'{week}{index}{year}'
 
-        details=Game_Dets(soup)
+        self.details=Game_Dets(soup,self.game_id)
 
-        base_list=[self.game_id,,details.game_date,details.game_time,details.stadium,details.ref,details.surface,details.roof]
+        base_list=[self.game_id,self.details.game_date,self.details.game_time,self.details.stadium,self.details.ref,self.details.surface,self.details.roof]
 
-        home_list = [f'{self.game_id}H', details.home_team_key, details.away_team_key] + base_list
-        away_list = [f'{self.game_id}A', details.away_team_key, details.home_team_key] + base_list
+        home_list = [f'{self.game_id}H', self.details.home_team_key, self.details.away_team_key] + base_list
+        away_list = [f'{self.game_id}A', self.details.away_team_key, self.details.home_team_key] + base_list
         self.game_rows=[home_list,away_list]
 
         self.df=pd.DataFrame(self.game_rows,columns=['Game_ID','Team','Opponent','Game','Date','Time','Stadium','Ref','Surface','Roof'])
 
-        self.Fact_Table=FactTable(soup,self)
+        self.Fact_Table=Fact_Table(soup,self)
 
 # Fact Table functionality
 
@@ -684,10 +684,10 @@ class Fact(Table): #functionality
         except MissingCols:
             raise MissingCols
 
-    def pivot(self):
+    def long_now(self):
         self.df = self.df[self.df['Player'] != 'Player']
 
-        self.typecheck()
+        #self.typecheck()
 
         self.df=self.df.melt(id_vars=['Player','Tm'],value_vars=self.value_vars,var_name='Stat',value_name='Value')
 
@@ -736,11 +736,11 @@ class Fact_Table(Table): # orchestration
                 instance=Defense_Table(soup,cat_cls)
             else:
                 instance=Fact(soup,cat_cls)
-            instance.df.pivot()
+            instance.long_now()
             dataframes.append(instance.df)
         self.df=pd.concat(dataframes)
 
-        self.df['Game_id']=self.df['Tm'].map(game_details.team_tags)
+        self.df['Game_id']=self.df['Tm'].map(game_details.details.team_tags)
         self.df=self.df[['Player','Tm','Game_id','Stat','Value']]
 
 # Dimension Tables
@@ -755,7 +755,7 @@ class Roster(HTML_Extraction):
     }
     cat='DIM_Players'
 
-class Players_Table(Dimension,DIM_Players_Mixin):
+class Players_Table(DIM_Players_Mixin):
     def __init__(self,soup,year):
         self.year=year
         settings=Roster
@@ -829,5 +829,3 @@ class Scraper_Settings:
         self.scrape_games=games
         self.start_week=start_week
         self.end_week=end_week
-
-
