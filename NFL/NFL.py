@@ -2,12 +2,9 @@ from abc import ABC, ABCMeta, abstractmethod
 import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
-import sys
 import logging
 from datetime import date
 from extractor import ExtractTable, ExtractionFailed, DIM_Players_Mixin
-import hashlib
-import json
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -155,6 +152,11 @@ teams={
     }
 }
 
+summary_stats=['P1','P2','P3','P4','P6','P8','P13','P15','P17','P18','P19','P20','P21','P23']#,'C1','C2','C3','C4','C5','C6','C8',
+               #'C11','C13','C15','R1','R2','R3','R4','R5','R7','R9','D1','D2','D3','D5','D6','D7','D8','D9','D10',
+               #'D11','D12','D13','D14','D15','D16','D17','D19','D22','D24','D25','D26','D27','D28','D29','D30',
+               #'D31']
+
 # base classes
 
 class Table:
@@ -276,7 +278,7 @@ class HTML_Layer:
     def __init__(self,settings):
         logging.info('Starting the html layer...\n')
         try:
-            self.year=year
+            self.year=settings.year
             self.team_htmls={}
             self.roster_htmls={}
             self.week_htmls={}
@@ -301,7 +303,7 @@ class HTML_Layer:
                 for week in range(settings.start_week,settings.end_week):
                     logging.info(f'Now scraping html for week {week}')
                     self.week_htmls[week]=[]
-                    self.url=f'https://www.pro-football-reference.com/years/{year}/week_{week}.htm'
+                    self.url=f'https://www.pro-football-reference.com/years/{settings.year}/week_{week}.htm'
                     week_html=self.load_page()
                     soup=BeautifulSoup(week_html,'html.parser')
                     week_games=soup.find_all('div',class_='game_summaries')
@@ -374,17 +376,66 @@ class default_pipeline_settings:
     scrape_games=True
 
 class Season_Mixins:
-    def extract_from_html_list(self, items, lis):
-        for key in items:
-            line=lis[items[key]]
-            val=line.get_text().strip()
-            setattr(self, key, val)
+    def extract_from_html_list(self,element_list,elements):
+        target_elements = {
+            key: value
+            for key, value in vars(elements).items()
+            if not key.startswith('__') and not callable(value)
+        }
+
+        for attr, idx in target_elements.items():
+            element=element_list[idx]
+            value=element.get_text().strip()
+            value = value.split(":", 1)[-1].strip() if ":" in value else value
+            value=value.split("(",1)[0].strip() if "(" in value else value
+            setattr(self, attr, value)
 
 def run_pipeline(year):
     settings=default_pipeline_settings
     settings.year=year
     htmls=HTML_Layer(settings)
     obj=Season(htmls,settings)
+    return
+
+def join_values(df1,df2):
+    df1 = df1[df1['Stat'].isin(summary_stats)]    
+    df1 = df1[df1['Player_ID'] == 'bf25f8dd_2024']
+    df1 = df1[df1['Tm'].notna()]
+    df1=df1[df1['Stat'].str.startswith('P')]
+
+    df2 = df2[df2['Stat'].isin(summary_stats)]    
+    df2 = df2[df2['Player_ID'] == 'bf25f8dd_2024']
+    df2 = df2[df2['Tm'].notna()]
+    df2=df2[df2['Stat'].str.startswith('P')]
+
+    pivot_1 = df1.pivot_table(
+    index=['Player_ID'],
+    columns='Stat',
+    values='Value',  # or 'Value_y'
+    fill_value=0
+    )
+
+    pivot_2 = df2.pivot_table(
+    index=['Player_ID'],
+    columns='Stat',
+    values='Value',  # or 'Value_y'
+    fill_value=0
+    )
+    combined = (
+    pivot_1
+    .merge(pivot_2, how='outer',
+           left_index=True, right_index=True,
+           suffixes=('_x','_y'))
+    .fillna(0)
+    )
+
+    for col in summary_stats:
+        combined[col]=combined[f'{col}_x']+combined[f'{col}_y']
+
+    filtered = combined[[col for col in combined.columns if col in summary_stats]]
+
+    logging.info(f'\n{combined}')
+    #print(filtered)
 
 class Season(Season_Mixins):
     def __init__(self,htmls,settings):
@@ -395,7 +446,14 @@ class Season(Season_Mixins):
         """
         self.settings = settings
         self.htmls = htmls
-        logging.info(f'\n\nStarting process for the {year} NFL Season.')
+        logging.info(f'\n\nStarting process for the {settings.year} NFL Season.')
+
+        self.year=settings.year
+        self.weeks=[]
+        
+        fact_tables=[]
+        dim_games_tables=[]
+
 
         if settings.end_week>18:
             logging.debug('End week cannot be greater than 18- setting to 18.')
@@ -407,38 +465,44 @@ class Season(Season_Mixins):
         end_week=settings.end_week
         self.htmls=htmls
 
+        if settings.scrape_teams is True:
+            for team in teams:
+                Team(team,htmls)
+
         if settings.scrape_rosters is True:
             logging.debug('Extracting player tables...')
-            Players=DIM_Players(year)
+            Players=DIM_Players(settings.year,htmls)
             self.teamref=Players.df
+
+        for week in range(start_week,end_week):
+            week_htmls=self.htmls.week_htmls[str(week)]
+            week_obj=Week(week,settings.year,week_htmls)
+            week_obj.create_games()
+            week_obj.create_tables()
+            dim_games_tables.append(week_obj.dim_games)
+            week_obj.substitute_player_id(self.teamref)
+            fact_tables.append(week_obj.fact_stats)
+            self.weeks.append(week_obj)
+            if week==1:
+                week_obj.season_sum=week_obj.fact_stats
+            else:
+                last_week=self.weeks[week-2]
+                join_values(last_week.fact_stats,week_obj.fact_stats)
+        return
         
         self.teamref=self.teamref.drop_duplicates(subset=['Player_ID'])
         self.teamref.drop(columns=['Team'],inplace=True)
 
-        self.year=year
-        self.weeks=[]
-        
-        fact_tables=[]
-        dim_games_tables=[]
-
-        for week in range(start_week,end_week):
-            htmls=self.htmls.week_htmls[week]
-            week_obj=Week(week,year,htmls)
-            self.weeks.append(week_obj)
-            week.create_games()
-            week.create_tables()
-            dim_games_tables.append(week.dim_games)
-            week.substitute_player_id(self.teamref)
-
-        return
-
         self.FACT_Stats=pd.concat(fact_tables)
         self.DIM_Games=pd.concat(dim_games_tables)
 
-        #with pd.ExcelWriter('New_Excel_Test.xlsx',mode='w') as writer:
-        #    self.FACT_Stats.to_excel(writer,sheet_name='FACT_Stats',index=False)
-        #    self.DIM_Games.to_excel(writer,sheet_name='DIM_Games',index=False)
-        #    self.teamref.to_excel(writer,sheet_name='DIM_Players',index=False)
+        self.DIM_Games['Year']=settings.year
+        self.teamref['Year']=settings.year
+
+        with pd.ExcelWriter('New_Excel_Test.xlsx',mode='w') as writer:
+            self.FACT_Stats.to_excel(writer,sheet_name='FACT_Stats',index=False)
+            self.DIM_Games.to_excel(writer,sheet_name='DIM_Games',index=False)
+            self.teamref.to_excel(writer,sheet_name='DIM_Players',index=False)
 
 class Week:
     def __init__(self,week,year,htmls):
@@ -456,10 +520,11 @@ class Week:
             for row in game.game_rows:
                 self.dim_game_rows.append(row)
 
-        dim_game_columns=['Team_Tag','Game_id','Team','Opponent','Game_Date','Game_Time','Stadium','ref','roof','surface']
+        dim_game_columns=['Team_Tag','Game_id','Team','Opponent','Game_Date','Game_Time','Stadium','ref','surface','roof']
         self.dim_games=pd.DataFrame(self.dim_game_rows,columns=dim_game_columns)
 
         self.fact_stats=pd.concat(self.fact_tables).reset_index(drop=True)
+        self.fact_stats['Value']=self.fact_stats['Value'].str.rstrip('%').astype(float).fillna(0)
 
     def create_games(self):
         for i,html in enumerate(self.htmls,start=1):
@@ -475,8 +540,7 @@ class Week:
             right_on=['Name','Team']
         )
         self.fact_stats.drop(columns=['Player','Name','Team'],inplace=True)
-        self.fact_stats=fact_table[['Player_ID','Tm','Game_id','Stat','Value']]
-        print(self.fact_stats)
+        self.fact_stats=self.fact_stats[['Player_ID','Tm','Game_id','Stat','Value']]
 
 # constants
 
@@ -490,6 +554,9 @@ class Passing(metaclass=Stat_Cat):
     id='passing_advanced'
     cat='passing'
     identifier='p'
+    avg_columns={
+        'Avg':['Yds','Att']
+    }
     stat_lookup={
         'Cmp':'P1',
         'Att':'P2',
@@ -616,11 +683,14 @@ class Advanced_Defense(HTML_Extraction): # DO NOT add the stat_cat metaclass to 
 # functions
 
 class Game_Details:
-    date=0
-    time=1
+    game_date=0
+    game_time=1
     stadium=2
 
-class Game_Dets:
+class ref_table_targets:
+    ref=1
+
+class Game_Dets(Season_Mixins):
     def __init__(self,soup,game_id):
         self.soup=soup
 
@@ -644,31 +714,26 @@ class Game_Dets:
         game_details_area=soup.find('div',class_='scorebox_meta')
         game_details_list=game_details_area.find_all('div')
 
-        self.extract_from_html_list(Game_Details,game_details_list)
+        self.extract_from_html_list(game_details_list,Game_Details)
 
         #self.game_date=game_details[0].get_text().strip()
 
-        #time_box=game_details[1].get_text().strip()
-        self.game_time=time_box.split(':',1)[1].strip()
-
-        #stadium_box=game_details[2].get_text().strip()
-        self.stadium=stadium_box.split(':',1)[1].strip()
-
         game_info_box=soup.find('table',id='game_info')
         
-        rows=game_info_box.find_all('td',class_='center'.{'data-stat':'stat'})
-        print(row[1])
+        rows = game_info_box.find_all('td', attrs={'class': 'center', 'data-stat': 'stat'})
 
-        #self.extract_from_html_list(Other_Game_Details,rows)
+        self.extract_from_html_list(rows,Other_Game_Details)
+
+        reftable=soup.find('table',id='officials')
+        rows=reftable.find_all('td')
+        self.extract_from_html_list(rows,ref_table_targets)
         
         #roofrow=rows[1]
-        self.roof=roofrow.find('td',class_='center').get_text()
+        #self.roof=roofrow.find('td',class_='center').get_text()
         
         #surfacerow=rows[2]
         #self.surface=surfacerow.find('td',class_='center').get_text()
         
-        #reftable=soup.find('table',id='officials')
-        #rows=reftable.find_all('tr')
         #row=rows[1]
         #self.ref=row.find('td',{'data-stat':'name'}).get_text()
 
@@ -704,15 +769,34 @@ class Fact(Table): #functionality
             super().__init__(category,soup)
         except MissingCols:
             raise MissingCols
+        self.df=self.df[self.df['Player']!='Player']
+        self.long_now()
+        self.clean_and_convert()
+        self.df = self.df.pivot_table(
+            index=['Player','Tm'],
+            columns='Stat',
+            values='Value',
+            fill_value=0
+        )
+        for col in category.avg_columns:
+            calc_cols=category.avg_columns[col]
+            self.df[col]=self.df[calc_cols[0]]/self.df[calc_cols[1]]
+        print(self.df)
 
     def long_now(self):
-        self.df = self.df[self.df['Player'] != 'Player']
+        
+        id_vars = ['Player', 'Tm']
+        value_vars = [col for col in self.df.columns if col not in id_vars]
 
-        #self.typecheck()
+        self.df = self.df.melt(
+            id_vars=id_vars,
+            value_vars=value_vars,
+            var_name='Stat',
+            value_name='Value'
+        )
 
-        self.df=self.df.melt(id_vars=['Player','Tm'],value_vars=self.value_vars,var_name='Stat',value_name='Value')
-
-        self.df['Stat']=self.df['Stat'].map(self.stat_lookup)
+    def clean_and_convert(self):
+        self.df['Value'] = self.df['Value'].str.replace('%','').astype(float)
 
 # Fact_Stats
 
@@ -739,6 +823,8 @@ class Defense_Table(Fact): #extension
         self.df=pd.merge(self.base_defense,advanced_stats,on=['Player','Tm'],how='outer').fillna(0)
 
         self.df = self.df[self.df['Player'] != 'Player']
+        self.df = self.df[self.df['Player'] != 0]
+        logging.debug(f'\n{self.df}')
 
     def get_advanced_stats(self):
         advanced=Table(Advanced_Defense,self.soup)
@@ -757,7 +843,9 @@ class Fact_Table(Table): # orchestration
                 instance=Defense_Table(soup,cat_cls)
             else:
                 instance=Fact(soup,cat_cls)
-            instance.()
+            #if cat_cls.cat=='passing':
+            #    print(instance.df)
+            #instance.long_now()
             dataframes.append(instance.df)
         self.df=pd.concat(dataframes)
 
@@ -776,14 +864,13 @@ class Roster(HTML_Extraction):
     }
     cat='DIM_Players'
 
-class Players_Table(DIM_Players_Mixin):
+class Players_Table(Table):
     def __init__(self,soup,year):
         self.year=year
-        settings=Roster
         self.soup=soup
-        super().__init__(soup,settings)
+        super().__init__(Roster,soup)
         self.df=self.df[self.df['No.'] != 'No.'].reset_index(drop=True)
-        self.process()
+        #self.process()
         self.df.drop(columns=['Drafted (tm/rnd/yr)'],inplace=True)
         self.df['Yrs']=self.df['Yrs'].replace('Rook', 0)
         starters=self.get_starters()
@@ -797,11 +884,10 @@ class Players_Table(DIM_Players_Mixin):
         return my_list
 
 class DIM_Players(DIM_Players_Mixin):
-    def __init__(self,year):
+    def __init__(self,year,htmls):
         self.year=year
         self.dfs={}
-        with open('full_week_test_rosters.txt', 'r', encoding='utf-8') as f:
-            my_dict = json.load(f)
+
         for team in teams:
             html=htmls.roster_htmls[teams[team]['abbr']]
             soup=BeautifulSoup(html,'html.parser')
@@ -821,11 +907,35 @@ class DIM_Players(DIM_Players_Mixin):
 
 # DIM_Teams
 
-class Team(Table):
-    def __init__(self,soup,team,htmls):
+class Team_Details_1:
+    head_coach=1
+    offensive_coordinator=6
+    defensive_coordinator=7
+    stadium=9
+
+class Team_Details_2:
+    head_coach=1
+    offensive_coordinator=7
+    defensive_coordinator=8
+    stadium=10
+
+
+class Team(Table,Season_Mixins):
+    def __init__(self,team,htmls):
         team_abbr=teams[team]['abbr']
-        html=team_htmls[team_abbr]
+        html=htmls.team_htmls[team_abbr]
         soup=BeautifulSoup(html,'html.parser')
+        
+        team_details_area=soup.find('div',{'data-template':'Partials/Teams/Summary'})
+        team_details=team_details_area.find_all('p')
+
+        if len(team_details)==16:
+            self.extract_from_html_list(team_details,Team_Details_1)
+        elif len(team_details)==17:
+
+            self.extract_from_html_list(team_details,Team_Details_2)
+        
+        return
         team_dets=soup.find('div',{'data-template':'Partials/Teams/Summary'})
         details=team_dets.find_all('p')
         head_coach_line=details[1]
