@@ -262,7 +262,7 @@ class Stat_Cat(ABCMeta): # any flat class used to define a statistical category 
         # Skip the base abstract class
         if not attrs.get('__abstractmethods__', False):
             # Enforce required attributes
-            required_attrs = ['id', 'expected_cols', 'cat']
+            required_attrs = ['id', 'expected_cols', 'cat', 'col_order', 'value_vars', 'identifier', 'stat_lookup']
             for attr in required_attrs:
                 if not hasattr(new_cls, attr):
                     raise TypeError(f"Class {name} must define '{attr}'")
@@ -544,98 +544,129 @@ class Week:
 
 # constants
 
-class Passing(metaclass=Stat_Cat):
-    expected_cols={'Player':object,'Tm':object,'Cmp':np.int64,'Att':np.int64,'Yds':np.int64,'1D':np.int64,'1D%':np.float64,'IAY':np.int64,'IAY/PA':np.float64,'CAY':np.int64,'CAY/Cmp':np.float64,'CAY/PA':np.float64,'YAC':np.int64,'YAC/Cmp':np.float64,'Drops':np.int64,'Drop%':np.float64,'BadTh':np.int64,'Bad%':np.float64,'Sk':np.int64,'Bltz':np.int64,'Hrry':np.int64,'Hits':np.int64,'Prss':np.int64,'Prss%':np.float64,'Scrm':np.int64,'Yds/Scr':np.float64}
-    value_vars=['Cmp','Att','Yds','1D','1D%','IAY','IAY/PA','CAY','CAY/Cmp','CAY/PA','YAC','YAC/Cmp','Drops','Drop%','BadTh','Bad%','Sk','Bltz','Hrry','Hits','Prss','Prss%','Scrm','Yds/Scr']
-    pct=['Drop%','Bad%','Prss%']
-    cleaning={
-        '%':['Drop%','Bad%','Prss%']
-    }
-    id='passing_advanced'
-    cat='passing'
-    identifier='p'
-    avg_columns={
-        'Avg':['Yds','Att']
-    }
-    stat_lookup={
-        'Cmp':'P1',
-        'Att':'P2',
-        'Yds':'P3',
-        '1D':'P4',
-        '1D%':'P5',
-        'IAY':'P6',
-        'IAY/PA':'P7',
-        'CAY':'P8',
-        'CAY/Cmp':'P9',
-        'CAY/PA':'P10',
-        'YAC':'P11',
-        'YAC/Cmp':'P12',
-        'Drops':'P13',
-        'Drop%':'P14',
-        'BadTh':'P15',
-        'Bad%':'P16',
-        'Sk':'P17',
-        'Bltz':'P18',
-        'Hrry':'P19',
-        'Hits':'P20',
-        'Prss':'P21',
-        'Prss%':'P22',
-        'Scrm':'P23',
-        'YdsScr':'P24'
-    }
-
 class Receiving(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Tgt':np.int64,'Rec':np.int64,'Yds':np.int64,'TD':np.int64,'1D':np.int64,'YBC':np.int64,'YBC/R':np.float64,'YAC':np.int64,'YAC/R':np.float64,'ADOT':np.float64,'BrkTkl':np.int64,'Rec/Br':np.float64,'Drop':np.int64,'Drop%':np.float64,'Int':np.int64,'Rat':np.float64}
     value_vars=['Tgt','Rec','Yds','TD','1D','YBC','YBC/R','YAC','YAC/R','ADOT','BrkTkl','Rec/Br','Drop','Drop%','Int','Rat']
+    col_order=['Player','Tm','Tgt','Rec','Pct','Yds','Avg/R','TD','1D','YBC','YBC/R','YAC','YAC/R','ADOT','BrkTkl','Rec/Br','Drop','Drop%','Int','Rat']
     id='receiving_advanced'
     cat='receiving'
     identifier='c' # rushing and receiving both start with r, so this has c for catching
     stat_lookup={
-        'Tgt':'C1',
-        'Rec':'C2',
-        'Yds':'C3',
-        'TD':'C4',
-        '1D':'C5',
-        'YBC':'C6',
-        'YBC/R':'C7',
-        'YAC':'C8',
-        'YAC/R':'C9',
-        'ADOT':'C10',
-        'BrkTkl':'C11',
-        'Rec/Br':'C12',
-        'Drop':'C13',
-        'Drop%':'C14',
-        'Int':'C15',
-        'Rat':'C16'
-    }
+            'Tgt':'C1',
+            'Rec':'C2',
+            'Pct':'C3',
+            'Yds':'C4',
+            'Avg/R':'C5',
+            'TD':'C6',
+            '1D':'C7',
+            'YBC':'C8',
+            'YBC/R':'C9',
+            'YAC':'C10',
+            'YAC/R':'C11',
+            'ADOT':'C12',
+            'BrkTkl':'C13',
+            'Rec/Br':'C14',
+            'Drop':'C15',
+            'Drop%':'C16',
+            'Int':'C17',
+            'Rat':'C18'
+        }
+    calc_columns={
+        'avg':{
+            'Avg/R':['Yds','Rec']
+            },
+        'pct'={
+            'Pct':['Tgt','Rec']
+            }
+        }
+    
+class Passing(metaclass=Stat_Cat):
+    expected_cols={'Player':object,'Tm':object,'Cmp':np.int64,'Att':np.int64,'Yds':np.int64,'Avg':np.float64,'Pct':np.float64,'1D':np.int64,'1D%':np.float64,'IAY':np.int64,'IAY/PA':np.float64,'CAY':np.int64,'CAY/Cmp':np.float64,'CAY/PA':np.float64,'YAC':np.int64,'YAC/Cmp':np.float64,'Drops':np.int64,'Drop%':np.float64,'BadTh':np.int64,'Bad%':np.float64,'Sk':np.int64,'Bltz':np.int64,'Hrry':np.int64,'Hits':np.int64,'Prss':np.int64,'Prss%':np.float64,'Scrm':np.int64,'Yds/Scr':np.float64}
+    value_vars=['Cmp','Att','Yds','Avg','Pct','1D','1D%','IAY','IAY/PA','CAY','CAY/Cmp','CAY/PA','YAC','YAC/Cmp','Drops','Drop%','BadTh','Bad%','Sk','Bltz','Hrry','Hits','Prss','Prss%','Scrm','Yds/Scr']
+    col_order=['Player','Tm','Cmp','Att','Yds','Avg','Pct','1D','1D%','IAY','IAY/PA','CAY','CAY/Cmp','CAY/PA','YAC','YAC/Cmp','Drops','Drop%','BadTh','Bad%','Sk','Bltz','Hrry','Hits','Prss','Prss%','Scrm','Yds/Scr']
+    cleaning={
+        '%':{
+            'cols':['Drop%','Bad%','Prss%'],
+            'replace_with':''
+            }
+        }
+    id='passing_advanced'
+    cat='passing'
+    identifier='p'
+    calc_columns={
+        'avg':{
+            'Avg':['Yds','Att']
+            },
+        'pct'={
+            'Pct':['Cmp','Att']
+            }
+        }
+    stat_lookup={
+        'Cmp':'P1',
+        'Att':'P2',
+        'Yds':'P3',
+        'Avg':'P4',
+        'Pct':'P5',
+        '1D':'P6',
+        '1D%':'P7',
+        'IAY':'P8',
+        'IAY/PA':'P9',
+        'CAY':'P10',
+        'CAY/Cmp':'P11',
+        'CAY/PA':'P12',
+        'YAC':'P13',
+        'YAC/Cmp':'P14',
+        'Drops':'P15',
+        'Drop%':'P16',
+        'BadTh':'P17',
+        'Bad%':'P18',
+        'Sk':'P19',
+        'Bltz':'P20',
+        'Hrry':'P21',
+        'Hits':'P22',
+        'Prss':'P23',
+        'Prss%':'P24',
+        'Scrm':'P25',
+        'YdsScr':'P26'
+        }
 
 class Rushing(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Att':np.int64,'Yds':np.int64,'TD':np.int64,'1D':np.int64,'YBC':np.int64,'YBC/Att':np.float64,'YAC':np.int64,'YAC/Att':np.float64,'BrkTkl':np.int64,'Att/Br':np.float64}
     value_vars=['Att','Yds','TD','1D','YBC','YBC/Att','YAC','YAC/Att','BrkTkl','Att/Br']
+    col_order=['Att','Yds','Avg','TD','1D','YBC','YBC/Att','YAC','YAC/Att','BrkTkl','Att/Br']
     id='rushing_advanced'
     cat='rushing'
     identifier='r'
     stat_lookup={
-        'Att':'R1',
-        'Yds':'R2',
-        'TD':'R3',
-        '1D':'R4',
-        'YBC':'R5',
-        'YBC/Att':'R6',
-        'YAC':'R7',
-        'YAC/Att':'R8',
-        'BrkTkl':'R9',
-        'Att/Br':'R10'
+            'Att':'R1',
+            'Yds':'R2',
+            'Avg/A':'R3',
+            'TD':'R4',
+            '1D':'R5',
+            'YBC':'R6',
+            'YBC/Att':'R7',
+            'YAC':'R8',
+            'YAC/Att':'R9',
+            'BrkTkl':'R10',
+            'Att/Br':'R11'
+        }
+    calc_columns={
+        'avg':{
+            'Avg':['Yds','Att']
+        }
     }
 
 class Defense(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Int':np.int64,'int_Yds':np.int64,'int_TD':np.int64,'Lng':np.int64,'PD':np.int64,'Sk':np.float64,'Comb':np.int64,'Solo':np.int64,'Ast':np.int64,'TFL':np.int64,'QBHits':np.int64,'FR':np.int64,'Yds':np.int64,'TD':np.int64,'FF':np.int64}
     value_vars=['Int','int_Yds','int_TD','Lng','PD','Sk','Comb','Solo','Ast','TFL','QBHits','FR','Yds','TD','FF','Tgt','Cmp','Cmp%','Yds','Yds/Cmp','Yds/Tgt','TD','Rat','DADOT','Air','YAC','Bltz','Hrry','QBKD','Sk','Prss','Comb','MTkl','MTkl%']
+    col_order=['Player','Tm','Int','int_Yds','int_TD','Lng','PD','Sk','Comb','Solo','Ast','TFL','QBHits','FR','Yds','TD','FF','Tgt','Cmp','Cmp%','Yds','Yds/Cmp','Yds/Tgt','TD','Rat','DADOT','Air','YAC','Bltz','Hrry','QBKD','Sk','Prss','Comb','MTkl','MTkl%']
     id='player_defense'
     cat='defense'
     identifier='d'
     cleaning={
-        '%':['Cmp%','MTkl%']
+        '%':{
+            'cols':['Cmp%','MTkl%']
+            'replace_with':''}
     }
     stat_lookup={
         'Int':'D1',
@@ -769,34 +800,37 @@ class Fact(Table): #functionality
             super().__init__(category,soup)
         except MissingCols:
             raise MissingCols
-        self.df=self.df[self.df['Player']!='Player']
-        self.long_now()
-        self.clean_and_convert()
-        self.df = self.df.pivot_table(
-            index=['Player','Tm'],
-            columns='Stat',
-            values='Value',
-            fill_value=0
-        )
-        for col in category.avg_columns:
-            calc_cols=category.avg_columns[col]
-            self.df[col]=self.df[calc_cols[0]]/self.df[calc_cols[1]]
+        self.df=self.df[self.df['Player']!='Player'].fillna(0)
+        self.clean_and_convert(category)
+
+        for calc in category.calc_columns:
+            dicref=category.calc_columns[calc]
+            for col in dicref:
+                nestref=dicref[col]
+                if calc=='avg':
+                    self.df[col]=self.df[nestref[0]]/self.df[nestref[1]]
+                if calc=='pct':
+                    self.df[col]=(self.df[nwaref[0]]*100)/self.df[nestref[1]]
+
+        self.df=self.df[category.col_order]
+
         print(self.df)
 
     def long_now(self):
-        
-        id_vars = ['Player', 'Tm']
-        value_vars = [col for col in self.df.columns if col not in id_vars]
+        self.typecheck()
 
-        self.df = self.df.melt(
-            id_vars=id_vars,
-            value_vars=value_vars,
-            var_name='Stat',
-            value_name='Value'
-        )
+        self.df=self.df.melt(id_vars=['Player','Tm'],value_vars=self.value_vars,var_name='Stat',value_name='Value')
 
-    def clean_and_convert(self):
-        self.df['Value'] = self.df['Value'].str.replace('%','').astype(float)
+        self.df['Stat']=self.df['Stat'].map(self.stat_lookup)
+
+    def clean_and_convert(self,category):
+        if category.cleaning:
+            for char in category.cleaning:
+                dicref=category.cleaning[char]
+                for col in dicref['cols']:
+                    self.df[col]=self.df[col].str.replace('%', '', regex=False)
+        self.df = self.df.astype(category.expected_cols)
+
 
 # Fact_Stats
 
