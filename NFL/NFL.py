@@ -432,6 +432,7 @@ def join_values(season_sum,current_week):
 
     pivot_2 = combined[[col for col in combined.columns if '_z' in col]]
 
+
     logging.info(f'\n\n{pivot_2}')
 
 
@@ -545,7 +546,7 @@ class Week:
 class Passing(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Cmp':np.int64,'Att':np.int64,'Yds':np.int64,'1D':np.int64,'1D%':np.float64,'IAY':np.int64,'IAY/PA':np.float64,'CAY':np.int64,'CAY/Cmp':np.float64,'CAY/PA':np.float64,'YAC':np.int64,'YAC/Cmp':np.float64,'Drops':np.int64,'Drop%':np.float64,'BadTh':np.int64,'Bad%':np.float64,'Sk':np.int64,'Bltz':np.int64,'Hrry':np.int64,'Hits':np.int64,'Prss':np.int64,'Prss%':np.float64,'Scrm':np.int64,'Yds/Scr':np.float64}
     value_vars=['Cmp','Att','Yds','Avg','Pct','1D','1D%','IAY','IAY/PA','CAY','CAY/Cmp','CAY/PA','YAC','YAC/Cmp','Drops','Drop%','BadTh','Bad%','Sk','Bltz','Hrry','Hits','Prss','Prss%','Scrm','Yds/Scr']
-    col_order=['Player','Tm','Cmp','Att','Yds','Avg','Pct','1D','1D%','IAY','IAY/PA','CAY','CAY/Cmp','CAY/PA','YAC','YAC/Cmp','Drops','Drop%','BadTh','Bad%','Sk','Bltz','Hrry','Hits','Prss','Prss%','Scrm','Yds/Scr']
+    col_order=['Player','Tm','Cmp','Att','Yds','Avg','Pct','1D','1D%','IAY','IAY/PA','CAY','CAY/Cmp','CAY/PA','YAC','YAC/Cmp','Drops','Drop%','BadTh','Bad%','Sk','Bltz','Hrry','Hits','Prss','Prss%','Scrm','ScrmYds','Yds/Scr']
     cleaning={
         '%':{
             'cols':['Drop%','Bad%','Prss%'],
@@ -561,6 +562,9 @@ class Passing(metaclass=Stat_Cat):
             },
         'pct':{
             'Pct':['Cmp','Att']
+            },
+            'tot':{
+                'ScrmYds':['Yds/Scr','Scrm']
             }
         }
     stat_lookup={
@@ -589,13 +593,16 @@ class Passing(metaclass=Stat_Cat):
         'Prss':'P23',
         'Prss%':'P24',
         'Scrm':'P25',
-        'Yds/Scr':'P26'
+        'ScrmYds':'P26',
+        'Yds/Scr':'P27'
         }
 
-summary_stats=['P1','P2','P3','P6','P8','P10','P13','P15','P17','P19','P20','P21','P23']#,'C1','C2','C3','C4','C5','C6','C8',
+summary_stats=['P1','P2','P3','P6','P8','P10','P13','P15','P17','P19','P20','P21','P22','P23','P25','P26']#,'C1','C2','C3','C4','C5','C6','C8',
                #'C11','C13','C15','R1','R2','R3','R4','R5','R7','R9','D1','D2','D3','D5','D6','D7','D8','D9','D10',
                #'D11','D12','D13','D14','D15','D16','D17','D19','D22','D24','D25','D26','D27','D28','D29','D30',
                #'D31']
+average_stats={'P4':['P3','P2'],'P9':['P8','P2'],'P11':['P10','P1'],'P12':['P10','P2'],'P14':['P13','P1'],'P27':['P26','P25']}
+pct_stats=['P5','P7','P16','P18','P24']
 
 class Receiving(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Tgt':np.int64,'Rec':np.int64,'Yds':np.int64,'TD':np.int64,'1D':np.int64,'YBC':np.int64,'YBC/R':np.float64,'YAC':np.int64,'YAC/R':np.float64,'ADOT':np.float64,'BrkTkl':np.int64,'Rec/Br':np.float64,'Drop':np.int64,'Drop%':np.float64,'Int':np.int64,'Rat':np.float64}
@@ -819,6 +826,8 @@ class Fact(Table): #functionality
                     self.df[col]=self.df[nestref[0]]/self.df[nestref[1]]
                 if calc=='pct':
                     self.df[col]=(self.df[nestref[0]]*100)/self.df[nestref[1]]
+                if calc=='tot':
+                    self.df[col]=self.df[nestref[0]]*self.df[nestref[1]]
 
         self.df=self.df[self.category.col_order]
 
