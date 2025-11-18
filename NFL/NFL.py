@@ -2,7 +2,6 @@ from abc import ABC, ABCMeta, abstractmethod
 import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
-import logging
 from datetime import date
 from extractor import ExtractTable, ExtractionFailed, DIM_Players_Mixin
 from selenium import webdriver
@@ -13,13 +12,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 import time
-
-logging.basicConfig(
-    filename=f'logs/log_{date.today()}.txt',
-    level=logging.CRITICAL,
-    format='%(levelname)s - %(message)s',
-    filemode='w'
-)
 
 teams={
     'Buffalo Bills':{       #AFC East
@@ -151,8 +143,6 @@ teams={
         'abbr':'CAR'
     }
 }
-
-
 
 # base classes
 
@@ -345,7 +335,7 @@ class HTML_Layer:
             logging.debug('Finished\n')
 
     def load_page(self,attempt=1,max_attempts=3):
-        logging.debug(f'attempting to extract html for {self.url}')
+        logging.debug(f'attempting to extract html for {self.url}\n')
         try:
             self.driver.get(self.url)
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
@@ -393,48 +383,6 @@ def run_pipeline(year):
     htmls=HTML_Layer(settings)
     obj=Season(htmls,settings)
     return
-
-def join_values(season_sum,current_week):
-    #df 1 is the previous week's season summary, df2 is the current week's season summary
-    season_sum = season_sum[season_sum['Stat'].isin(summary_stats)]    
-    season_sum = season_sum[season_sum['Player_ID'] == 'bf25f8dd_2024']
-    season_sum = season_sum[season_sum['Tm'].notna()]
-    season_sum=season_sum[season_sum['Stat'].str.startswith('P')]
-
-    current_week = current_week[current_week['Stat'].isin(summary_stats)]    
-    current_week = current_week[current_week['Player_ID'] == 'bf25f8dd_2024']
-    current_week = current_week[current_week['Tm'].notna()]
-    current_week=current_week[current_week['Stat'].str.startswith('P')]
-
-    pivot_1 = season_sum.pivot_table(
-    index=['Player_ID'],
-    columns='Stat',
-    values='Value',  # or 'Value_y'
-    fill_value=0
-    )
-
-    pivot_2 = current_week.pivot_table(
-    index=['Player_ID'],
-    columns='Stat',
-    values='Value',  # or 'Value_y'
-    fill_value=0
-    )
-    combined = (
-    pivot_1
-    .merge(pivot_2, how='outer',
-           left_index=True, right_index=True,
-           suffixes=('_x','_y'))
-    .fillna(0)
-    )
-
-    for col in summary_stats:
-        combined[f'{col}_z'] = combined[f'{col}_x'] + combined[f'{col}_y']
-
-    pivot_2 = combined[[col for col in combined.columns if '_z' in col]]
-
-
-    logging.info(f'\n\n{pivot_2}')
-
 
 class Season(Season_Mixins):
     def __init__(self,htmls,settings):
@@ -486,7 +434,7 @@ class Season(Season_Mixins):
                 week_obj.season_sum=week_obj.fact_stats
             else:
                 last_week=self.weeks[week-2]
-                join_values(last_week.season_sum,week_obj.fact_stats)
+                self.join_values(last_week.season_sum,week_obj.fact_stats)
         return
         self.teamref=self.teamref.drop_duplicates(subset=['Player_ID'])
         self.teamref.drop(columns=['Team'],inplace=True)
@@ -503,6 +451,60 @@ class Season(Season_Mixins):
             self.FACT_Stats.to_excel(writer,sheet_name='FACT_Stats',index=False)
             self.DIM_Games.to_excel(writer,sheet_name='DIM_Games',index=False)
             self.teamref.to_excel(writer,sheet_name='DIM_Players',index=False)
+
+    def pivot_and_combine(df_list,cat):
+        pivoted_dfs=[]
+        for df in df_list:
+            df = df[df['Stat'].isin(summary_stats)]    
+            df = df[df['Player_ID'] == 'bf25f8dd_2024']
+            df = df[df['Tm'].notna()]
+            df=df[df['Stat'].str.startswith(cat.identifier)]
+
+            pivot = df.pivot_table(
+            index=['Player_ID'],
+            columns='Stat',
+            values='Value',  # or 'Value_y'
+            fill_value=0
+            )
+            pivoted_dfs.append(pivot)
+
+        pivot1=pivoted_dfs[0]
+        pivot2=pivoted_dfs[1]
+
+        combined = (
+            pivot1
+            .merge(pivot2, how='outer',
+                left_index=True, right_index=True,
+                suffixes=('_x','_y'))
+            .fillna(0)
+            )
+        return combined
+
+    def join_values(self,season_sum,current_week):
+        df_list=[season_sum,current_week]
+        for cat in Stat_Cat.registry:
+            combined=pivot_and_combine(df_list,cat)
+            for calc in season_calcs:
+                if calc=='sum':
+                    for col in season_calcs[calc]:
+                        combined[f'{col}_z'] = combined[f'{col}_x'] + combined[f'{col}_y']
+                
+                if calc=='avg':
+                    for col in season_calcs[calc]:
+                        dicref=season_calcs[calc][col]
+                        combined[f'{col}_z']=(combined[f'{dicref[0]}_x']+combined[f'{dicref[0]}_y'])/(combined[f'{dicref[1]}_x']+combined[f'{dicref[1]}_y'])
+
+                if calc=='pct':
+                    for col in season_calcs[calc]:
+                        dicref=season_calcs[calc][col]
+                        combined[f'{col}_z']=((combined[f'{dicref[0]}_x']+combined[f'{dicref[0]}_y'])*100)/(combined[f'{dicref[1]}_x']+combined[f'{dicref[1]}_y'])
+
+                if calc=='rat':
+                    combined[f'{col}_z']=(combined[f'{col}_x']+combined[f'{col}_y'])/2
+
+            pivot_2 = combined[[col for col in combined.columns if '_z' in col]]
+
+            logging.info(f'\n\n{pivot_2}')
 
 class Week:
     def __init__(self,week,year,htmls):
@@ -555,18 +557,26 @@ class Passing(metaclass=Stat_Cat):
         }
     id='passing_advanced'
     cat='passing'
-    identifier='p'
+    identifier='P'
     calc_columns={
         'avg':{
             'Avg':['Yds','Att']
             },
         'pct':{
             'Pct':['Cmp','Att']
-            },
-            'tot':{
-                'ScrmYds':['Yds/Scr','Scrm']
+            }
+        'tot':{
+            'ScrmYds':['Yds/Scr','Scrm']
+        },
+        'sum':{
+            'PassPlays':['Att','Sk']
             }
         }
+    season_calcs={
+        'sum':['P1','P2','P3','P6','P8','P10','P13','P15','P17','P19','P20','P21','P22','P23','P25','P26'],
+        'avg':{'P4':['P3','P2'],'P9':['P8','P2'],'P11':['P10','P1'],'P12':['P10','P2'],'P14':['P13','P1'],'P27':['P26','P25']},
+        'pct':{'P5':['P1','P2'],'P7':['P6','P28'],'P16':['P15','P2'],'P18':['P17','P2']}
+    }
     stat_lookup={
         'Cmp':'P1',
         'Att':'P2',
@@ -594,15 +604,39 @@ class Passing(metaclass=Stat_Cat):
         'Prss%':'P24',
         'Scrm':'P25',
         'ScrmYds':'P26',
-        'Yds/Scr':'P27'
+        'Yds/Scr':'P27',
+        'PassPlays':'P28'
         }
 
-summary_stats=['P1','P2','P3','P6','P8','P10','P13','P15','P17','P19','P20','P21','P22','P23','P25','P26']#,'C1','C2','C3','C4','C5','C6','C8',
-               #'C11','C13','C15','R1','R2','R3','R4','R5','R7','R9','D1','D2','D3','D5','D6','D7','D8','D9','D10',
-               #'D11','D12','D13','D14','D15','D16','D17','D19','D22','D24','D25','D26','D27','D28','D29','D30',
-               #'D31']
-average_stats={'P4':['P3','P2'],'P9':['P8','P2'],'P11':['P10','P1'],'P12':['P10','P2'],'P14':['P13','P1'],'P27':['P26','P25']}
-pct_stats=['P5','P7','P16','P18','P24']
+class Rushing(metaclass=Stat_Cat):
+    expected_cols={'Player':object,'Tm':object,'Att':np.int64,'Yds':np.int64,'TD':np.int64,'1D':np.int64,'YBC':np.int64,'YBC/Att':np.float64,'YAC':np.int64,'YAC/Att':np.float64,'BrkTkl':np.int64,'Att/Br':np.float64}
+    value_vars=['Att','Yds','Avg/A','TD','1D','YBC','YBC/Att','YAC','YAC/Att','BrkTkl','Att/Br']
+    col_order=['Player','Tm','Att','Yds','Avg/A','TD','1D','YBC','YBC/Att','YAC','YAC/Att','BrkTkl','Att/Br']
+    id='rushing_advanced'
+    cat='rushing'
+    identifier='R'
+    stat_lookup={
+            'Att':'R1',
+            'Yds':'R2',
+            'Avg/A':'R3',
+            'TD':'R4',
+            '1D':'R5',
+            'YBC':'R6',
+            'YBC/Att':'R7',
+            'YAC':'R8',
+            'YAC/Att':'R9',
+            'BrkTkl':'R10',
+            'Att/Br':'R11'
+        }
+    calc_columns={
+        'avg':{
+            'Avg/A':['Yds','Att']
+        }
+    }
+    season_calcs={
+        'sum':['R1','R2','R4','R5','R6','R8','R10'],
+        'avg':{'R3':['R2','R1'],'R7':['R6','R1'],'R9':['R8','R1'],'R11':['R1','R10']}
+    }
 
 class Receiving(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Tgt':np.int64,'Rec':np.int64,'Yds':np.int64,'TD':np.int64,'1D':np.int64,'YBC':np.int64,'YBC/R':np.float64,'YAC':np.int64,'YAC/R':np.float64,'ADOT':np.float64,'BrkTkl':np.int64,'Rec/Br':np.float64,'Drop':np.int64,'Drop%':np.float64,'Int':np.int64,'Rat':np.float64}
@@ -610,7 +644,7 @@ class Receiving(metaclass=Stat_Cat):
     col_order=['Player','Tm','Tgt','Rec','Pct','Yds','Avg/R','TD','1D','YBC','YBC/R','YAC','YAC/R','ADOT','BrkTkl','Rec/Br','Drop','Drop%','Int','Rat']
     id='receiving_advanced'
     cat='receiving'
-    identifier='c' # rushing and receiving both start with r, so this has c for catching
+    identifier='C' # rushing and receiving both start with r, so this has c for catching
     stat_lookup={
             'Tgt':'C1',
             'Rec':'C2',
@@ -639,32 +673,13 @@ class Receiving(metaclass=Stat_Cat):
             'Pct':['Tgt','Rec']
             }
         }
-    
-class Rushing(metaclass=Stat_Cat):
-    expected_cols={'Player':object,'Tm':object,'Att':np.int64,'Yds':np.int64,'TD':np.int64,'1D':np.int64,'YBC':np.int64,'YBC/Att':np.float64,'YAC':np.int64,'YAC/Att':np.float64,'BrkTkl':np.int64,'Att/Br':np.float64}
-    value_vars=['Att','Yds','Avg/A','TD','1D','YBC','YBC/Att','YAC','YAC/Att','BrkTkl','Att/Br']
-    col_order=['Player','Tm','Att','Yds','Avg/A','TD','1D','YBC','YBC/Att','YAC','YAC/Att','BrkTkl','Att/Br']
-    id='rushing_advanced'
-    cat='rushing'
-    identifier='r'
-    stat_lookup={
-            'Att':'R1',
-            'Yds':'R2',
-            'Avg/A':'R3',
-            'TD':'R4',
-            '1D':'R5',
-            'YBC':'R6',
-            'YBC/Att':'R7',
-            'YAC':'R8',
-            'YAC/Att':'R9',
-            'BrkTkl':'R10',
-            'Att/Br':'R11'
+
+    season_calcs={
+        'sum':['C1','C2','C4','C6','C7','C8','C10','C13','C15','C17'],
+        'avg':{'C5':['C4','C2'],'C9':['C8','C2'],'C11':['C10','C2'],'C14':['C2','C13']},
+        'pct':{'C3':['C2','C1'],'C16':['C15','C1']},
+        'rat':{'C12','C18'}
         }
-    calc_columns={
-        'avg':{
-            'Avg/A':['Yds','Att']
-        }
-    }
 
 class Defense(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Int':np.int64,'int_Yds':np.int64,'int_TD':np.int64,'Lng':np.int64,'PD':np.int64,'Sk':np.float64,'Comb':np.int64,'Solo':np.int64,'Ast':np.int64,'TFL':np.int64,'QBHits':np.int64,'FR':np.int64,'Yds':np.int64,'TD':np.int64,'FF':np.int64}
@@ -677,7 +692,7 @@ class Defense(metaclass=Stat_Cat):
         '%':{
             'cols':['Cmp%','MTkl%'],
             'replace_with':''}
-    }
+        }
     calc_columns={}
     stat_lookup={
         'Int':'D1',
@@ -712,7 +727,13 @@ class Defense(metaclass=Stat_Cat):
         'Prss':'D30',
         'MTkl':'D31',
         'MTkl%':'D32'
-    }
+     }
+
+    season_calcs={
+        'sum':['D1','D2','D3','D5','D6','D7','D8','D9','D10','D11','D12','D13','D14','D15','D16','D17','D19','D22','D23','D24','D25','D26','D27','D28','D29','D30','D31'],
+        'avg':{'D20':['D13','D17'],'D21':['D13','D16']},
+        'pct':{'D18':['D17','D16'],}
+        }
 
 class Advanced_Defense(HTML_Extraction): # DO NOT add the stat_cat metaclass to this. This is to set the extraction to be added into the defense table.
     id='defense_advanced'
@@ -964,7 +985,6 @@ class Team_Details_2:
     offensive_coordinator=7
     defensive_coordinator=8
     stadium=10
-
 
 class Team(Table,Season_Mixins):
     def __init__(self,team,htmls):
