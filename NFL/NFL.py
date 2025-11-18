@@ -152,10 +152,7 @@ teams={
     }
 }
 
-summary_stats=['P1','P2','P3','P4','P6','P8','P13','P15','P17','P18','P19','P20','P21','P23']#,'C1','C2','C3','C4','C5','C6','C8',
-               #'C11','C13','C15','R1','R2','R3','R4','R5','R7','R9','D1','D2','D3','D5','D6','D7','D8','D9','D10',
-               #'D11','D12','D13','D14','D15','D16','D17','D19','D22','D24','D25','D26','D27','D28','D29','D30',
-               #'D31']
+
 
 # base classes
 
@@ -188,7 +185,7 @@ class Table:
     def shapecheck(self):
         logging.debug('Conducting shapecheck.')
         actual_cols=set(self.df.columns)
-        logging.info(self.df)
+        logging.debug(self.df)
         expected=set(self.expected_cols.keys())
         self.missing_cols=expected-actual_cols
         if self.missing_cols:
@@ -397,25 +394,26 @@ def run_pipeline(year):
     obj=Season(htmls,settings)
     return
 
-def join_values(df1,df2):
-    df1 = df1[df1['Stat'].isin(summary_stats)]    
-    df1 = df1[df1['Player_ID'] == 'bf25f8dd_2024']
-    df1 = df1[df1['Tm'].notna()]
-    df1=df1[df1['Stat'].str.startswith('P')]
+def join_values(season_sum,current_week):
+    #df 1 is the previous week's season summary, df2 is the current week's season summary
+    season_sum = season_sum[season_sum['Stat'].isin(summary_stats)]    
+    season_sum = season_sum[season_sum['Player_ID'] == 'bf25f8dd_2024']
+    season_sum = season_sum[season_sum['Tm'].notna()]
+    season_sum=season_sum[season_sum['Stat'].str.startswith('P')]
 
-    df2 = df2[df2['Stat'].isin(summary_stats)]    
-    df2 = df2[df2['Player_ID'] == 'bf25f8dd_2024']
-    df2 = df2[df2['Tm'].notna()]
-    df2=df2[df2['Stat'].str.startswith('P')]
+    current_week = current_week[current_week['Stat'].isin(summary_stats)]    
+    current_week = current_week[current_week['Player_ID'] == 'bf25f8dd_2024']
+    current_week = current_week[current_week['Tm'].notna()]
+    current_week=current_week[current_week['Stat'].str.startswith('P')]
 
-    pivot_1 = df1.pivot_table(
+    pivot_1 = season_sum.pivot_table(
     index=['Player_ID'],
     columns='Stat',
     values='Value',  # or 'Value_y'
     fill_value=0
     )
 
-    pivot_2 = df2.pivot_table(
+    pivot_2 = current_week.pivot_table(
     index=['Player_ID'],
     columns='Stat',
     values='Value',  # or 'Value_y'
@@ -430,11 +428,12 @@ def join_values(df1,df2):
     )
 
     for col in summary_stats:
-        combined[col]=combined[f'{col}_x']+combined[f'{col}_y']
+        combined[f'{col}_z'] = combined[f'{col}_x'] + combined[f'{col}_y']
 
-    filtered = combined[[col for col in combined.columns if col in summary_stats]]
+    pivot_2 = combined[[col for col in combined.columns if '_z' in col]]
 
-    logging.info(f'\n{combined}')
+    logging.info(f'\n\n{pivot_2}')
+
 
 class Season(Season_Mixins):
     def __init__(self,htmls,settings):
@@ -482,13 +481,11 @@ class Season(Season_Mixins):
             week_obj.substitute_player_id(self.teamref)
             fact_tables.append(week_obj.fact_stats)
             self.weeks.append(week_obj)
-            print(week_obj.fact_stats)
-            continue
             if week==1:
                 week_obj.season_sum=week_obj.fact_stats
             else:
                 last_week=self.weeks[week-2]
-                join_values(last_week.fact_stats,week_obj.fact_stats)
+                join_values(last_week.season_sum,week_obj.fact_stats)
         return
         self.teamref=self.teamref.drop_duplicates(subset=['Player_ID'])
         self.teamref.drop(columns=['Team'],inplace=True)
@@ -594,6 +591,11 @@ class Passing(metaclass=Stat_Cat):
         'Scrm':'P25',
         'Yds/Scr':'P26'
         }
+
+summary_stats=['P1','P2','P3','P6','P8','P10','P13','P15','P17','P19','P20','P21','P23']#,'C1','C2','C3','C4','C5','C6','C8',
+               #'C11','C13','C15','R1','R2','R3','R4','R5','R7','R9','D1','D2','D3','D5','D6','D7','D8','D9','D10',
+               #'D11','D12','D13','D14','D15','D16','D17','D19','D22','D24','D25','D26','D27','D28','D29','D30',
+               #'D31']
 
 class Receiving(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Tgt':np.int64,'Rec':np.int64,'Yds':np.int64,'TD':np.int64,'1D':np.int64,'YBC':np.int64,'YBC/R':np.float64,'YAC':np.int64,'YAC/R':np.float64,'ADOT':np.float64,'BrkTkl':np.int64,'Rec/Br':np.float64,'Drop':np.int64,'Drop%':np.float64,'Int':np.int64,'Rat':np.float64}
@@ -938,7 +940,7 @@ class DIM_Players(DIM_Players_Mixin):
             cols.insert(0, cols.pop(cols.index(col)))
         self.df = self.df[cols]
 
-        logging.info(self.df)
+        logging.debug(self.df)
 
 # DIM_Teams
 
