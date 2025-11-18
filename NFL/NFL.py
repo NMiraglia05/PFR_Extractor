@@ -161,7 +161,7 @@ summary_stats=['P1','P2','P3','P4','P6','P8','P13','P15','P17','P18','P19','P20'
 
 class Table:
     def __init__(self,category,soup):
-        logging.info(f'\nCreating dataframe for {category.cat}')
+        logging.debug(f'\nCreating dataframe for {category.cat}')
         for k,v in category.__dict__.items():
             if not k.startswith('__'):
                 setattr(self,k,v)
@@ -435,7 +435,6 @@ def join_values(df1,df2):
     filtered = combined[[col for col in combined.columns if col in summary_stats]]
 
     logging.info(f'\n{combined}')
-    #print(filtered)
 
 class Season(Season_Mixins):
     def __init__(self,htmls,settings):
@@ -483,13 +482,14 @@ class Season(Season_Mixins):
             week_obj.substitute_player_id(self.teamref)
             fact_tables.append(week_obj.fact_stats)
             self.weeks.append(week_obj)
+            print(week_obj.fact_stats)
+            continue
             if week==1:
                 week_obj.season_sum=week_obj.fact_stats
             else:
                 last_week=self.weeks[week-2]
                 join_values(last_week.fact_stats,week_obj.fact_stats)
         return
-        
         self.teamref=self.teamref.drop_duplicates(subset=['Player_ID'])
         self.teamref.drop(columns=['Team'],inplace=True)
 
@@ -498,6 +498,8 @@ class Season(Season_Mixins):
 
         self.DIM_Games['Year']=settings.year
         self.teamref['Year']=settings.year
+
+        return
 
         with pd.ExcelWriter('New_Excel_Test.xlsx',mode='w') as writer:
             self.FACT_Stats.to_excel(writer,sheet_name='FACT_Stats',index=False)
@@ -524,7 +526,6 @@ class Week:
         self.dim_games=pd.DataFrame(self.dim_game_rows,columns=dim_game_columns)
 
         self.fact_stats=pd.concat(self.fact_tables).reset_index(drop=True)
-        self.fact_stats['Value']=self.fact_stats['Value'].str.rstrip('%').astype(float).fillna(0)
 
     def create_games(self):
         for i,html in enumerate(self.htmls,start=1):
@@ -540,48 +541,12 @@ class Week:
             right_on=['Name','Team']
         )
         self.fact_stats.drop(columns=['Player','Name','Team'],inplace=True)
-        self.fact_stats=self.fact_stats[['Player_ID','Tm','Game_id','Stat','Value']]
+        self.fact_stats=self.fact_stats[['Player_ID','Tm','Game_id','Stat','Value']].fillna(0)
 
 # constants
 
-class Receiving(metaclass=Stat_Cat):
-    expected_cols={'Player':object,'Tm':object,'Tgt':np.int64,'Rec':np.int64,'Yds':np.int64,'TD':np.int64,'1D':np.int64,'YBC':np.int64,'YBC/R':np.float64,'YAC':np.int64,'YAC/R':np.float64,'ADOT':np.float64,'BrkTkl':np.int64,'Rec/Br':np.float64,'Drop':np.int64,'Drop%':np.float64,'Int':np.int64,'Rat':np.float64}
-    value_vars=['Tgt','Rec','Yds','TD','1D','YBC','YBC/R','YAC','YAC/R','ADOT','BrkTkl','Rec/Br','Drop','Drop%','Int','Rat']
-    col_order=['Player','Tm','Tgt','Rec','Pct','Yds','Avg/R','TD','1D','YBC','YBC/R','YAC','YAC/R','ADOT','BrkTkl','Rec/Br','Drop','Drop%','Int','Rat']
-    id='receiving_advanced'
-    cat='receiving'
-    identifier='c' # rushing and receiving both start with r, so this has c for catching
-    stat_lookup={
-            'Tgt':'C1',
-            'Rec':'C2',
-            'Pct':'C3',
-            'Yds':'C4',
-            'Avg/R':'C5',
-            'TD':'C6',
-            '1D':'C7',
-            'YBC':'C8',
-            'YBC/R':'C9',
-            'YAC':'C10',
-            'YAC/R':'C11',
-            'ADOT':'C12',
-            'BrkTkl':'C13',
-            'Rec/Br':'C14',
-            'Drop':'C15',
-            'Drop%':'C16',
-            'Int':'C17',
-            'Rat':'C18'
-        }
-    calc_columns={
-        'avg':{
-            'Avg/R':['Yds','Rec']
-            },
-        'pct'={
-            'Pct':['Tgt','Rec']
-            }
-        }
-    
 class Passing(metaclass=Stat_Cat):
-    expected_cols={'Player':object,'Tm':object,'Cmp':np.int64,'Att':np.int64,'Yds':np.int64,'Avg':np.float64,'Pct':np.float64,'1D':np.int64,'1D%':np.float64,'IAY':np.int64,'IAY/PA':np.float64,'CAY':np.int64,'CAY/Cmp':np.float64,'CAY/PA':np.float64,'YAC':np.int64,'YAC/Cmp':np.float64,'Drops':np.int64,'Drop%':np.float64,'BadTh':np.int64,'Bad%':np.float64,'Sk':np.int64,'Bltz':np.int64,'Hrry':np.int64,'Hits':np.int64,'Prss':np.int64,'Prss%':np.float64,'Scrm':np.int64,'Yds/Scr':np.float64}
+    expected_cols={'Player':object,'Tm':object,'Cmp':np.int64,'Att':np.int64,'Yds':np.int64,'1D':np.int64,'1D%':np.float64,'IAY':np.int64,'IAY/PA':np.float64,'CAY':np.int64,'CAY/Cmp':np.float64,'CAY/PA':np.float64,'YAC':np.int64,'YAC/Cmp':np.float64,'Drops':np.int64,'Drop%':np.float64,'BadTh':np.int64,'Bad%':np.float64,'Sk':np.int64,'Bltz':np.int64,'Hrry':np.int64,'Hits':np.int64,'Prss':np.int64,'Prss%':np.float64,'Scrm':np.int64,'Yds/Scr':np.float64}
     value_vars=['Cmp','Att','Yds','Avg','Pct','1D','1D%','IAY','IAY/PA','CAY','CAY/Cmp','CAY/PA','YAC','YAC/Cmp','Drops','Drop%','BadTh','Bad%','Sk','Bltz','Hrry','Hits','Prss','Prss%','Scrm','Yds/Scr']
     col_order=['Player','Tm','Cmp','Att','Yds','Avg','Pct','1D','1D%','IAY','IAY/PA','CAY','CAY/Cmp','CAY/PA','YAC','YAC/Cmp','Drops','Drop%','BadTh','Bad%','Sk','Bltz','Hrry','Hits','Prss','Prss%','Scrm','Yds/Scr']
     cleaning={
@@ -597,7 +562,7 @@ class Passing(metaclass=Stat_Cat):
         'avg':{
             'Avg':['Yds','Att']
             },
-        'pct'={
+        'pct':{
             'Pct':['Cmp','Att']
             }
         }
@@ -627,13 +592,49 @@ class Passing(metaclass=Stat_Cat):
         'Prss':'P23',
         'Prss%':'P24',
         'Scrm':'P25',
-        'YdsScr':'P26'
+        'Yds/Scr':'P26'
         }
 
+class Receiving(metaclass=Stat_Cat):
+    expected_cols={'Player':object,'Tm':object,'Tgt':np.int64,'Rec':np.int64,'Yds':np.int64,'TD':np.int64,'1D':np.int64,'YBC':np.int64,'YBC/R':np.float64,'YAC':np.int64,'YAC/R':np.float64,'ADOT':np.float64,'BrkTkl':np.int64,'Rec/Br':np.float64,'Drop':np.int64,'Drop%':np.float64,'Int':np.int64,'Rat':np.float64}
+    value_vars=['Tgt','Rec','Pct','Yds','Avg/R','TD','1D','YBC','YBC/R','YAC','YAC/R','ADOT','BrkTkl','Rec/Br','Drop','Drop%','Int','Rat']
+    col_order=['Player','Tm','Tgt','Rec','Pct','Yds','Avg/R','TD','1D','YBC','YBC/R','YAC','YAC/R','ADOT','BrkTkl','Rec/Br','Drop','Drop%','Int','Rat']
+    id='receiving_advanced'
+    cat='receiving'
+    identifier='c' # rushing and receiving both start with r, so this has c for catching
+    stat_lookup={
+            'Tgt':'C1',
+            'Rec':'C2',
+            'Pct':'C3',
+            'Yds':'C4',
+            'Avg/R':'C5',
+            'TD':'C6',
+            '1D':'C7',
+            'YBC':'C8',
+            'YBC/R':'C9',
+            'YAC':'C10',
+            'YAC/R':'C11',
+            'ADOT':'C12',
+            'BrkTkl':'C13',
+            'Rec/Br':'C14',
+            'Drop':'C15',
+            'Drop%':'C16',
+            'Int':'C17',
+            'Rat':'C18'
+        }
+    calc_columns={
+        'avg':{
+            'Avg/R':['Yds','Rec']
+            },
+        'pct':{
+            'Pct':['Tgt','Rec']
+            }
+        }
+    
 class Rushing(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Att':np.int64,'Yds':np.int64,'TD':np.int64,'1D':np.int64,'YBC':np.int64,'YBC/Att':np.float64,'YAC':np.int64,'YAC/Att':np.float64,'BrkTkl':np.int64,'Att/Br':np.float64}
-    value_vars=['Att','Yds','TD','1D','YBC','YBC/Att','YAC','YAC/Att','BrkTkl','Att/Br']
-    col_order=['Att','Yds','Avg','TD','1D','YBC','YBC/Att','YAC','YAC/Att','BrkTkl','Att/Br']
+    value_vars=['Att','Yds','Avg/A','TD','1D','YBC','YBC/Att','YAC','YAC/Att','BrkTkl','Att/Br']
+    col_order=['Player','Tm','Att','Yds','Avg/A','TD','1D','YBC','YBC/Att','YAC','YAC/Att','BrkTkl','Att/Br']
     id='rushing_advanced'
     cat='rushing'
     identifier='r'
@@ -652,7 +653,7 @@ class Rushing(metaclass=Stat_Cat):
         }
     calc_columns={
         'avg':{
-            'Avg':['Yds','Att']
+            'Avg/A':['Yds','Att']
         }
     }
 
@@ -665,9 +666,10 @@ class Defense(metaclass=Stat_Cat):
     identifier='d'
     cleaning={
         '%':{
-            'cols':['Cmp%','MTkl%']
+            'cols':['Cmp%','MTkl%'],
             'replace_with':''}
     }
+    calc_columns={}
     stat_lookup={
         'Int':'D1',
         'int_Yds':'D2',
@@ -792,6 +794,7 @@ class Game:
 
 class Fact(Table): #functionality
     def __init__(self,soup,category):
+        self.category=category
         logging.info(f'Extracting {category.cat} data...')
         for k,v in category.__dict__.items():
             if not k.startswith('__'):
@@ -800,37 +803,36 @@ class Fact(Table): #functionality
             super().__init__(category,soup)
         except MissingCols:
             raise MissingCols
-        self.df=self.df[self.df['Player']!='Player'].fillna(0)
-        self.clean_and_convert(category)
 
-        for calc in category.calc_columns:
-            dicref=category.calc_columns[calc]
+        self.df=self.df[self.df['Player']!='Player'].fillna(0)
+        
+    def calculate_values(self):
+        self.clean_and_convert(self.category)
+
+        for calc in self.category.calc_columns:
+            dicref=self.category.calc_columns[calc]
             for col in dicref:
                 nestref=dicref[col]
                 if calc=='avg':
                     self.df[col]=self.df[nestref[0]]/self.df[nestref[1]]
                 if calc=='pct':
-                    self.df[col]=(self.df[nwaref[0]]*100)/self.df[nestref[1]]
+                    self.df[col]=(self.df[nestref[0]]*100)/self.df[nestref[1]]
 
-        self.df=self.df[category.col_order]
-
-        print(self.df)
+        self.df=self.df[self.category.col_order]
 
     def long_now(self):
-        self.typecheck()
-
         self.df=self.df.melt(id_vars=['Player','Tm'],value_vars=self.value_vars,var_name='Stat',value_name='Value')
 
-        self.df['Stat']=self.df['Stat'].map(self.stat_lookup)
+        self.df['Stat']=self.df['Stat'].map(self.stat_lookup).fillna(0)
 
     def clean_and_convert(self,category):
-        if category.cleaning:
+        cleaning = getattr(category, 'cleaning', None)
+        if cleaning:
             for char in category.cleaning:
                 dicref=category.cleaning[char]
                 for col in dicref['cols']:
                     self.df[col]=self.df[col].str.replace('%', '', regex=False)
         self.df = self.df.astype(category.expected_cols)
-
 
 # Fact_Stats
 
@@ -877,9 +879,8 @@ class Fact_Table(Table): # orchestration
                 instance=Defense_Table(soup,cat_cls)
             else:
                 instance=Fact(soup,cat_cls)
-            #if cat_cls.cat=='passing':
-            #    print(instance.df)
-            #instance.long_now()
+            instance.calculate_values()
+            instance.long_now()
             dataframes.append(instance.df)
         self.df=pd.concat(dataframes)
 
