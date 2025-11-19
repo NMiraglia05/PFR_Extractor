@@ -108,3 +108,35 @@ class DIM_Players_Mixin:
         return pd.Series(vectorized_sha256(combined),index=name_col.index)
 
 service = Service(ChromeDriverManager().install())
+
+class Fact(Table): 
+    def calculate_values(self):
+        self.clean_and_convert(self.category)
+
+        for calc in self.category.calc_columns:
+            dicref=self.category.calc_columns[calc]
+            for col in dicref:
+                nestref=dicref[col]
+                if calc=='avg':
+                    self.df[col]=self.df[nestref[0]]/self.df[nestref[1]]
+                if calc=='pct':
+                    self.df[col]=(self.df[nestref[0]]*100)/self.df[nestref[1]]
+                if calc=='tot':
+                    self.df[col]=self.df[nestref[0]]*self.df[nestref[1]]
+                if calc=='sum':
+                    self.df[col]=self.df[nestref[0]]+self.df[nestref[1]]
+        logging.info(f'After calculating, this is the table:\n\n{self.df}')
+
+        self.df=self.df[self.category.col_order]
+
+    def long_now(self):
+        logging.info(f'Before lengthening, this is the dataframe:\n\n{self.df}')
+        self.df=self.df.melt(id_vars=['Player','Tm'],value_vars=self.value_vars,var_name='Stat',value_name='Value')
+
+        self.df['Stat']=self.df['Stat'].map(self.stat_lookup).fillna(0)
+
+    def clean_and_convert(self,category):
+        cleaning = getattr(category, 'cleaning', None)
+        if cleaning:
+            self.clean_table()
+        self.df = self.df.astype(category.expected_cols)
