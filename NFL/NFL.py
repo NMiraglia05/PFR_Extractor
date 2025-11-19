@@ -5,202 +5,19 @@ from bs4 import BeautifulSoup
 from datetime import date
 from extractor import ExtractTable, DIM_Players_Mixin, load_page
 import logging
+import json
 
 logging.basicConfig(
     filename=f'logs/log_{date.today()}.txt',
     level=logging.INFO,
     format='%(levelname)s - %(message)s',
     filemode='w'
-)
+    )
 
-teams={
-    'Buffalo Bills':{       #AFC East
-        'url':'buf',
-        'abbr':'BUF'
-    },
-    'Miami Dolphins':{
-        'url':'mia',
-        'abbr':'MIA'
-    },
-    'New England Patriots':{
-        'url':'nwe',
-        'abbr':'NWE'
-    },
-    'New York Jets':{
-        'url':'nyj',
-        'abbr':'NYJ'
-    },
-    'Baltimore Ravens':{    #AFC North
-        'url':'rav',
-        'abbr':'BAL'
-    },
-    'Cleveland Browns':{
-        'url':'cle',
-        'abbr':'CLE'
-    },
-    'Pittsburgh Steelers':{
-        'url':'pit',
-        'abbr':'PIT'
-    },
-    'Cincinnati Bengals':{
-        'url':'cin',
-        'abbr':'CIN'
-    },
-    'Kansas City Chiefs':{           #AFC West
-        'url':'kan',
-        'abbr':'KAN'
-    },
-    'Los Angeles Chargers':{
-        'url':'sdg',
-        'abbr':'LAC'
-    },
-    'Denver Broncos':{
-        'url':'den',
-        'abbr':'DEN'
-    },
-    'Las Vegas Raiders':{
-        'url':'rai',
-        'abbr':'LVR'
-    },
-    'Houston Texans':{      #AFC South
-        'url':'htx',
-        'abbr':'HOU'
-    },
-    'Indianapolis Colts':{
-        'url':'clt',
-        'abbr':'IND'
-    },
-    'Tennessee Titans':{
-        'url':'oti',
-        'abbr':'TEN'
-    },
-    'Jacksonville Jaguars':{
-        'url':'jax',
-        'abbr':'JAX'
-    },
-    'New York Giants':{        #NFC East
-        'url':'nyg',
-        'abbr':'NYG'
-    },
-    'Dallas Cowboys':{
-        'url':'dal',
-        'abbr':'DAL'
-    },
-    'Washington Commanders':{
-        'url':'was',
-        'abbr':'WAS'
-    },
-    'Philadelphia Eagles':{ 
-        'url':'phi',
-        'abbr':'PHI'
-    },
-    'Chicago Bears':{           #NFC North
-        'url':'chi',
-        'abbr':'CHI'
-    },
-    'Green Bay Packers':{
-        'url':'gnb',
-        'abbr':'GNB'
-    },
-    'Detroit Lions':{
-        'url':'det',
-        'abbr':'DET'
-    },
-    'Minnesota Vikings':{
-        'url':'min',
-        'abbr':'MIN'
-    },
-    'Los Angeles Rams':{                 #NFC West
-        'url':'ram',
-        'abbr':'LAR'
-    },
-    'San Francisco 49ers':{
-        'url':'sfo',
-        'abbr':'SFO'
-    },
-    'Seattle Seahawks':{
-        'url':'sea',
-        'abbr':'SEA'
-    },
-    'Arizona Cardinals':{
-        'url':'crd',
-        'abbr':'ARI'
-    },
-    'Tampa Bay Buccaneers':{    #NFC South
-        'url':'tam',
-        'abbr':'TAM'
-    },
-    'Atlanta Falcons':{
-        'url':'atl',
-        'abbr':'ATL'
-    },
-    'New Orleans Saints':{
-        'url':'nor',
-        'abbr':'NOR'
-    },
-    'Carolina Panthers':{
-        'url':'car',
-        'abbr':'CAR'
-    }
-}
+with open("teams.json") as f:
+    teams = json.load(f)
 
 # base classes
-
-class Table:
-    def __init__(self,category,soup):
-        logging.debug(f'\nCreating dataframe for {category.cat}')
-        for k,v in category.__dict__.items():
-            if not k.startswith('__'):
-                setattr(self,k,v)
-        self.df=ExtractTable(soup,self.id).fillna(0).replace('',0)
-
-        logging.debug('Shapecheck in progress...')
-        if self.cat!='defense':
-            self.shapecheck()
-
-    def shapecheck(self):
-        logging.debug('Conducting shapecheck.')
-        actual_cols=set(self.df.columns)
-        expected=set(self.expected_cols.keys())
-        self.missing_cols=expected-actual_cols
-        if self.missing_cols:
-            logging.critical(f'Shapecheck failed. The table is missing the following columns: {self.missing_cols}.')
-            raise MissingCols
-        
-        leftover_cols=actual_cols-expected
-        
-        if leftover_cols:
-            logging.warning(f'Shapecheck succeeded, however there are more columns than expected. Unexpected columns: {leftover_cols}. These will be retained.')
-
-    def shapecheck(self):
-        logging.debug('Conducting shapecheck.')
-        actual_cols=set(self.df.columns)
-        logging.debug(self.df)
-        expected=set(self.expected_cols.keys())
-        self.missing_cols=expected-actual_cols
-        if self.missing_cols:
-            logging.critical(f'Shapecheck failed. The table is missing the following columns: {self.missing_cols}. Closing program.')
-            raise MissingCols
-        
-        leftover_cols=actual_cols-expected
-        
-        if leftover_cols:
-            logging.warning(f'Shapecheck succeeded, however there are more columns than expected. Unexpected columns: {leftover_cols}. These will be retained.')
-
-    def typecheck(self):
-        for col in self.df.columns:
-            expectedtype=self.expected_cols[col]
-            actualtype=self.df[col].dtypes
-            if expectedtype==actualtype:
-                logging.debug('Typecheck succeeded')
-                continue
-            else:
-                logging.debug(f'{col} failed typecheck. Expected type: {expectedtype}. Actual type: {actualtype}. Attempting conversion...')
-                try:
-                    self.df[col]=self.df[col].astype(expectedtype)
-                    logging.debug('Successfully converted to expected type.')
-                except Exception as e:
-                    logging.error(f'Unable to convert{col}- {e}')
 
 class HTML_Extraction(ABC):
     """All classes that will interact with beautifulsoup must inherit this."""
@@ -276,9 +93,10 @@ class HTML_Layer:
 
             if settings.scrape_games==True:
                 for week in range(settings.start_week,settings.end_week):
-                    logging.info(f'Now scraping html for week {week}')
+                    logging.info(f'Now scraping html for week {week}\n')
                     self.week_htmls[week]=[]
                     self.url=f'https://www.pro-football-reference.com/years/{settings.year}/week_{week}.htm'
+                    logging.debug(f'Week URL: {self.url}')
                     week_html=load_page(self.url)
                     soup=BeautifulSoup(week_html,'html.parser')
                     week_games=soup.find_all('div',class_='game_summaries')
@@ -301,8 +119,8 @@ class HTML_Layer:
                         html=load_page()
                         self.week_htmls[week].append(html)
         finally:
-            self.driver.quit()
-            logging.info('Webdriver sucessfully closed.')
+            driver.quit()
+            logging.info('Webdriver sucessfully closed.\n')
 
     def extract_teams(self):
         for team in teams:
@@ -345,22 +163,19 @@ class Season_Mixins:
             setattr(self, attr, value)
 
 def run_pipeline(year):
+    logging.info('Initializing pipeline...\n')
     settings=default_pipeline_settings
     settings.year=year
+    logging.debug(f'Settings:\n\n{settings.__dict__()}\n')
     htmls=HTML_Layer(settings)
     obj=Season(htmls,settings)
     return
 
 class Season(Season_Mixins):
     def __init__(self,htmls,settings):
-        """
-        Args:
-            htmls: HTML data to process
-            settings: Settings object (required)
-        """
         self.settings = settings
         self.htmls = htmls
-        logging.info(f'\n\nStarting process for the {settings.year} NFL Season.')
+        logging.info(f'Starting process for the {settings.year} NFL Season.\n\n')
 
         self.year=settings.year
         self.weeks=[]
@@ -373,7 +188,7 @@ class Season(Season_Mixins):
             logging.debug('End week cannot be greater than 18- setting to 18.')
             settings.end_week=18
 
-        settings.end_week+=1
+        settings.end_week+=1 #ensures users can specify their actual desired endweek. no need to understand how the Range loop works
 
         start_week=settings.start_week
         end_week=settings.end_week
@@ -389,10 +204,13 @@ class Season(Season_Mixins):
             self.teamref=Players.df
 
         for week in range(start_week,end_week):
+            week_id=f'W{week}{settings.year}'
             week_htmls=self.htmls.week_htmls[str(week)]
             week_obj=Week(week,settings.year,week_htmls)
-            week_obj.create_games()
-            week_obj.create_tables()
+            #weekrow=[week_id,'Season Sum',none,none,none]
+            #week_obj.dim_games.concat([week_obj.dim_games,pd.DataFrame(weekrow)], ignore_index=True)
+            print(week_obj.dim_games)
+            break
             dim_games_tables.append(week_obj.dim_games)
             week_obj.substitute_player_id(self.teamref)
             fact_tables.append(week_obj.fact_stats)
@@ -403,8 +221,11 @@ class Season(Season_Mixins):
                 last_week=self.weeks[week-2]
                 giggidy=self.join_values(last_week.season_sum,week_obj.fact_stats)
                 week_obj.season_sum=giggidy
+                week_obj.season_sum['Game_ID']=week_id
+            fact_tables.append(week_obj.season_sum)
             print(week_obj.season_sum)
         return
+
         self.teamref=self.teamref.drop_duplicates(subset=['Player_ID'])
         self.teamref.drop(columns=['Team'],inplace=True)
 
@@ -479,8 +300,8 @@ class Season(Season_Mixins):
             pivot_2 = pivot_2.rename(columns=lambda x: x.replace('_z', ''))
             pivot_2 = pivot_2.reset_index()
 
-            fuckkkkkkk=pd.melt(pivot_2,id_vars=['Player_ID','Tm'],value_vars=cat.season_vals,var_name='Stat')
-            long_dfs.append(fuckkkkkkk)
+            melted=pd.melt(pivot_2,id_vars=['Player_ID','Tm'],value_vars=cat.season_vals,var_name='Stat')
+            long_dfs.append(melted)
         season_sum=pd.concat(long_dfs)
         return season_sum
 
@@ -493,6 +314,9 @@ class Week:
         self.games=[]
         self.dim_game_rows=[]
         self.fact_tables=[]
+
+        self.create_games()
+        self.create_tables()
 
     def create_tables(self):
         for game in self.games:
@@ -570,17 +394,15 @@ class Receiving(metaclass=Stat_Cat):
     season_vals=['C1','C2','C4','C6','C7','C8','C10','C13','C15','C17',
         'C5','C9','C11','C14','C3','C16','C12','C18']
 
-
 class Passing(metaclass=Stat_Cat):
     expected_cols={'Player':object,'Tm':object,'Cmp':np.int64,'Att':np.int64,'Yds':np.int64,'1D':np.int64,'1D%':np.float64,'IAY':np.int64,'IAY/PA':np.float64,'CAY':np.int64,'CAY/Cmp':np.float64,'CAY/PA':np.float64,'YAC':np.int64,'YAC/Cmp':np.float64,'Drops':np.int64,'Drop%':np.float64,'BadTh':np.int64,'Bad%':np.float64,'Sk':np.int64,'Bltz':np.int64,'Hrry':np.int64,'Hits':np.int64,'Prss':np.int64,'Prss%':np.float64,'Scrm':np.int64,'Yds/Scr':np.float64}
     value_vars=['Cmp','Att','Yds','Avg','Pct','1D','1D%','IAY','IAY/PA','CAY','CAY/Cmp','CAY/PA','YAC','YAC/Cmp','Drops','Drop%','BadTh','Bad%','Sk','Bltz','Hrry','Hits','Prss','Prss%','Scrm','Yds/Scr','PassPlays']
     col_order=['Player','Tm','Cmp','Att','Yds','Avg','Pct','1D','1D%','IAY','IAY/PA','CAY','CAY/Cmp','CAY/PA','YAC','YAC/Cmp','Drops','Drop%','BadTh','Bad%','Sk','Bltz','Hrry','Hits','Prss','Prss%','Scrm','ScrmYds','Yds/Scr','PassPlays']
-    cleaning={
-        '%':{
-            'cols':['Drop%','Bad%','Prss%'],
-            'replace_with':''
+    cleaning = {
+        'Drop%': [{'target': '%', 'replace_with': ''}],
+        'Bad%': [{'target': '%', 'replace_with': ''}],
+        'Prss%': [{'target': '%', 'replace_with': ''}]
             }
-        }
     id='passing_advanced'
     cat='passing'
     identifier='P'
@@ -678,10 +500,13 @@ class Defense():
     id='player_defense'
     cat='defense'
     identifier='d'
-    cleaning={
-        '%':{
-            'cols':['Cmp%','MTkl%'],
-            'replace_with':''}
+    cleaning = {
+        'Cmp%': [
+            {'target': '%', 'replace_with': ''}
+        ],
+        'MTkl%': [
+            {'target': '%', 'replace_with': ''}
+        ]
         }
     calc_columns={}
     stat_lookup={
@@ -813,7 +638,7 @@ class Game:
 
 # Fact Table functionality
 
-class Fact(Table): #functionality
+class Stat_Table(Fact):
     def __init__(self,soup,category):
         self.category=category
         logging.info(f'Extracting {category.cat} data...')
@@ -826,44 +651,10 @@ class Fact(Table): #functionality
             raise MissingCols
 
         self.df=self.df[self.df['Player']!='Player'].fillna(0)
-        
-    def calculate_values(self):
-        self.clean_and_convert(self.category)
-
-        for calc in self.category.calc_columns:
-            dicref=self.category.calc_columns[calc]
-            for col in dicref:
-                nestref=dicref[col]
-                if calc=='avg':
-                    self.df[col]=self.df[nestref[0]]/self.df[nestref[1]]
-                if calc=='pct':
-                    self.df[col]=(self.df[nestref[0]]*100)/self.df[nestref[1]]
-                if calc=='tot':
-                    self.df[col]=self.df[nestref[0]]*self.df[nestref[1]]
-                if calc=='sum':
-                    self.df[col]=self.df[nestref[0]]+self.df[nestref[1]]
-        logging.info(f'After calculating, this is the table:\n\n{self.df}')
-
-        self.df=self.df[self.category.col_order]
-
-    def long_now(self):
-        logging.info(f'Before lengthening, this is the dataframe:\n\n{self.df}')
-        self.df=self.df.melt(id_vars=['Player','Tm'],value_vars=self.value_vars,var_name='Stat',value_name='Value')
-
-        self.df['Stat']=self.df['Stat'].map(self.stat_lookup).fillna(0)
-
-    def clean_and_convert(self,category):
-        cleaning = getattr(category, 'cleaning', None)
-        if cleaning:
-            for char in category.cleaning:
-                dicref=category.cleaning[char]
-                for col in dicref['cols']:
-                    self.df[col]=self.df[col].str.replace('%', '', regex=False)
-        self.df = self.df.astype(category.expected_cols)
 
 # Fact_Stats
 
-class Defense_Table(Fact): #extension
+class Defense_Table(Stat_Table): #extension
     def __init__(self,soup,category):
         self.soup=soup
         try:
@@ -905,7 +696,7 @@ class Fact_Table(Table): # orchestration
             if cat_cls.cat=='defense':
                 instance=Defense_Table(soup,cat_cls)
             else:
-                instance=Fact(soup,cat_cls)
+                instance=Stat_Table(soup,cat_cls)
             instance.calculate_values()
             instance.long_now()
             dataframes.append(instance.df)
