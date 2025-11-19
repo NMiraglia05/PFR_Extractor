@@ -1,0 +1,130 @@
+{
+  "Buffalo Bills": {
+    "url": "buf",
+    "abbr": "BUF"
+  },
+  "Miami Dolphins": {
+    "url": "mia",
+    "abbr": "MIA"
+  },
+  "New England Patriots": {
+    "url": "nwe",
+    "abbr": "NWE"
+  },
+  "New York Jets": {
+    "url": "nyj",
+    "abbr": "NYJ"
+  },
+  "Baltimore Ravens": {
+    "url": "rav",
+    "abbr": "BAL"
+  },
+  "Cleveland Browns": {
+    "url": "cle",
+    "abbr": "CLE"
+  },
+  "Pittsburgh Steelers": {
+    "url": "pit",
+    "abbr": "PIT"
+  },
+  "Cincinnati Bengals": {
+    "url": "cin",
+    "abbr": "CIN"
+  },
+  "Kansas City Chiefs": {
+    "url": "kan",
+    "abbr": "KAN"
+  },
+  "Los Angeles Chargers": {
+    "url": "sdg",
+    "abbr": "LAC"
+  },
+  "Denver Broncos": {
+    "url": "den",
+    "abbr": "DEN"
+  },
+  "Las Vegas Raiders": {
+    "url": "rai",
+    "abbr": "LVR"
+  },
+  "Houston Texans": {
+    "url": "htx",
+    "abbr": "HOU"
+  },
+  "Indianapolis Colts": {
+    "url": "clt",
+    "abbr": "IND"
+  },
+  "Tennessee Titans": {
+    "url": "oti",
+    "abbr": "TEN"
+  },
+  "Jacksonville Jaguars": {
+    "url": "jax",
+    "abbr": "JAX"
+  },
+  "New York Giants": {
+    "url": "nyg",
+    "abbr": "NYG"
+  },
+  "Dallas Cowboys": {
+    "url": "dal",
+    "abbr": "DAL"
+  },
+  "Washington Commanders": {
+    "url": "was",
+    "abbr": "WAS"
+  },
+  "Philadelphia Eagles": {
+    "url": "phi",
+    "abbr": "PHI"
+  },
+  "Chicago Bears": {
+    "url": "chi",
+    "abbr": "CHI"
+  },
+  "Green Bay Packers": {
+    "url": "gnb",
+    "abbr": "GNB"
+  },
+  "Detroit Lions": {
+    "url": "det",
+    "abbr": "DET"
+  },
+  "Minnesota Vikings": {
+    "url": "min",
+    "abbr": "MIN"
+  },
+  "Los Angeles Rams": {
+    "url": "ram",
+    "abbr": "LAR"
+  },
+  "San Francisco 49ers": {
+    "url": "sfo",
+    "abbr": "SFO"
+  },
+  "Seattle Seahawks": {
+    "url": "sea",
+    "abbr": "SEA"
+  },
+  "Arizona Cardinals": {
+    "url": "crd",
+    "abbr": "ARI"
+  },
+  "Tampa Bay Buccaneers": {
+    "url": "tam",
+    "abbr": "TAM"
+  },
+  "Atlanta Falcons": {
+    "url": "atl",
+    "abbr": "ATL"
+  },
+  "New Orleans Saints": {
+    "url": "nor",
+    "abbr": "NOR"
+  },
+  "Carolina Panthers": {
+    "url": "car",
+    "abbr": "CAR"
+  }
+}
