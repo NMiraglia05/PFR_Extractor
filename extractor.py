@@ -109,6 +109,53 @@ class DIM_Players_Mixin:
 
 service = Service(ChromeDriverManager().install())
 
+class Table: # move this to the extractor module
+    def __init__(self,category,soup,validate=True):
+        logging.debug(f'\nCreating dataframe for {category.cat}')
+        for k,v in category.__dict__.items():
+            if not k.startswith('__'):
+                setattr(self,k,v)
+        self.df=ExtractTable(soup,self.id).fillna(0).replace('',0)
+        if validate==True:
+            self.shapecheck()
+
+    def shapecheck(self):
+        logging.debug('Conducting shapecheck.')
+        actual_cols=set(self.df.columns)
+        expected=set(self.expected_cols.keys())
+        self.missing_cols=expected-actual_cols
+        if self.missing_cols:
+            logging.critical(f'Shapecheck failed. The table is missing the following columns: {self.missing_cols}.')
+            raise MissingCols
+        
+        leftover_cols=actual_cols-expected
+        
+        if leftover_cols:
+            logging.warning(f'Shapecheck succeeded, however there are more columns than expected. Unexpected columns: {leftover_cols}. These will be retained.')
+
+    def typecheck(self):
+        for col in self.df.columns:
+            expectedtype=self.expected_cols[col]
+            actualtype=self.df[col].dtypes
+            if expectedtype==actualtype:
+                logging.debug('Typecheck succeeded')
+                continue
+            else:
+                logging.debug(f'{col} failed typecheck. Expected type: {expectedtype}. Actual type: {actualtype}. Attempting conversion...')
+                try:
+                    self.df[col]=self.df[col].astype(expectedtype)
+                    logging.debug('Successfully converted to expected type.')
+                except Exception as e:
+                    logging.error(f'Unable to convert{col}- {e}')
+
+    def clean_table(self):
+        for col, rules in self.cleaning.items():
+            for rule in rules:
+                dirtychar = rule['target']
+                replacement = rule['replace_with']
+                self.df[col] = self.df[col].str.replace(dirtychar, replacement, regex=False)
+
+
 class Fact(Table): 
     def calculate_values(self):
         self.clean_and_convert(self.category)
