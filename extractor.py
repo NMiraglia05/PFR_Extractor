@@ -11,6 +11,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium import webdriver
 import hashlib
 import numpy as np
+import requests
+from bs4 import BeautifulSoup
 
 logging.basicConfig(
     filename=f'logs/log_{date.today()}.txt',
@@ -46,41 +48,90 @@ def ExtractTable(soup,id):
     df = pd.DataFrame(table_data, columns=headers)
     return df
 
-def load_page(url,attempt=1,max_attempts=3):
-    global driver
-    logging.info(f'attempting to extract html for {url}')
+def start_driver():
+    logging.info('No active driver detected, starting new webdriver...')
+    service = Service(ChromeDriverManager().install())
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--enable-unsafe-swiftshader")
+    options.add_argument("--log-level=3")
+    options.add_argument("window-size=1920,1080")
+    options.add_argument("--ignore-certificate-errors")
+    driver = webdriver.Chrome(service=service, options=options)
 
-    if 'driver' not in globals() or driver is None:
-            logging.info('No active driver detected, starting new webdriver...')
-            service = Service(ChromeDriverManager().install())
-            options = Options()
-            options.add_argument("--headless")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
-            options.add_argument("--enable-unsafe-swiftshader")
-            options.add_argument("--log-level=3")
-            options.add_argument("window-size=1920,1080")
-            options.add_argument("--ignore-certificate-errors")
-            driver = webdriver.Chrome(service=service, options=options)
-    try:
-        driver.get(url)
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-    except Exception as e:
-        if attempt<max_attempts:
-            logging.warning(f'Attempt {attempt} failed- reattempting.')
-            return load_page(url,attempt+1)
+class scraper_methods:
+    def uncomment_html(self):
+        return re.sub(r'<!--.*?-->', '', self.html, flags=re.DOTALL)
+
+class Scraper(scraper_methods):
+    def __init__(self):
+        self.test_request()
+
+    def test_request(self):
+        resp = requests.get('https://www.pro-football-reference.com/boxscores/202409080buf.htm')
+        raw_html = resp.text
+
+        test_html = re.sub(r'<!--.*?-->', '', raw_html, flags=re.DOTALL)
+        soup = BeautifulSoup(test_html, 'html.parser')
+        table = soup.find('table', id='passing_advanced')
+
+        if table:
+            self.scraping = scrape_with_requests(self.uncomment_html)
         else:
-            logging.error(f'Unable to extract {url}- attempt 3 failed.')
+            self.scraping = scrape_with_selenium(self.uncomment_html)
+
+    def scrape(self, url):
+        return self.scraping.load_page(url)
+
+class scrape_with_requests:
+    def __init__(self, uncomment_callback):
+        self.uncomment = uncomment_callback
+
+    def load_page(self, url, attempt=1, max_attempts=3):
+        try:
+            resp = requests.get(url)
+            html = re.sub(r'<!--.*?-->', '', resp.text, flags=re.DOTALL)
+            return html
+
+        except Exception:
+            if attempt <= max_attempts:
+                logging.warning(f'Requests attempt {attempt} failed, retrying...')
+                return self.load_page(url, attempt+1)
+            logging.error(f'FAILED requests scrape of: {url}')
             raise ExtractionFailed
-    try:
-        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "table")))
-    except:
-        logging.error('Webdriver timed out while waiting for the element.')
-        raise Exception
-    logging.info(f'Extraction successful\n\n')
-    time.sleep(6) # ensures compliance with PFR's max of 10 requests per minute
-    return driver.page_source   
+
+class scrape_with_selenium:
+    def __init__(self, uncomment_callback):
+        self.uncomment = uncomment_callback
+
+    def load_page(self, url, attempt=1, max_attempts=3):
+        global driver
+        logging.info(f'Attempting Selenium scrape for {url}')
+
+        try:
+            driver.get(url)
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+
+        except Exception:
+            if attempt <= max_attempts:
+                logging.warning(f'Selenium attempt {attempt} failed, retrying...')
+                return self.load_page(url, attempt+1)
+            logging.error(f'FAILED selenium scrape of: {url}')
+            raise ExtractionFailed
+
+        try:
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.TAG_NAME, "table"))
+            )
+        except:
+            logging.error("Timed out waiting for table in Selenium")
+            raise
+
+        time.sleep(6)  # PFR rate limit compliance
+        return driver.page_source   
 
 class DIM_Players_Mixin:
     def generate_player_id(self, name_col, birth_col):
@@ -187,3 +238,34 @@ class Fact(Table):
         if cleaning:
             self.clean_table()
         self.df = self.df.astype(category.expected_cols)
+
+class Dim_Check(ABC):
+    @property
+    @abstractmethod
+    def primary_key(self):
+        """HTML class identifier"""
+        raise NotImplementedError()
+
+class Dimension(Table,Dim_Check):
+    def validate_export(self):
+        df=self.df
+        dup_mask=df[self.primary_key].duplicated(keep=False)
+
+        if not dup_mask.any():
+            logging.debug('No duplicates found.')
+            return
+
+        self.dup_df=df[dup_mask].sort_values(self.primary_key)
+        raise TypeError
+
+class Exporter:
+    def __init__(self):
+        export_df_objects=[]
+        validated_dfs=[]
+
+        for obj in export_df_objects:
+            obj.validate_export()
+            validiated_dfs.append(obj.df)
+
+def start_html_scraper(url):
+    html=requests.get(url)
