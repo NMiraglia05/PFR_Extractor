@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 from datetime import date
-from extractor import ExtractTable, DIM_Players_Mixin, load_page
+from extractor import ExtractTable, DIM_Players_Mixin, Table, Fact, HTML_Scraper
 import logging
 import json
 
@@ -87,17 +87,21 @@ class HTML_Layer:
             self.roster_htmls={}
             self.week_htmls={}
 
+            scraper=HTML_Scraper()
+
             if settings.scrape_teams==True or settings.scrape_rosters==True:
                 logging.debug('Scraping loop for teams/rosters triggered\n')
                 self.extract_teams()
 
             if settings.scrape_games==True:
-                for week in range(settings.start_week,settings.end_week):
+                print('aaaaaaaaaaa')
+                print(settings.start_week,settings.end_week)
+                for week in range(settings.start_week,settings.end_week+1):
                     logging.info(f'Now scraping html for week {week}\n')
                     self.week_htmls[week]=[]
                     self.url=f'https://www.pro-football-reference.com/years/{settings.year}/week_{week}.htm'
                     logging.debug(f'Week URL: {self.url}')
-                    week_html=load_page(self.url)
+                    week_html=scraper.scrape(self.url)
                     soup=BeautifulSoup(week_html,'html.parser')
                     week_games=soup.find_all('div',class_='game_summaries')
                     if len(week_games)==2:
@@ -116,11 +120,11 @@ class HTML_Layer:
                         game_link=game.find('td',class_='right gamelink')
                         link=game_link.find('a')['href']
                         self.url=f'https://www.pro-football-reference.com{link}'
-                        html=load_page()
+                        html=scraper.scrape(self.url)
                         self.week_htmls[week].append(html)
         finally:
-            driver.quit()
-            logging.info('Webdriver sucessfully closed.\n')
+            scraper.quit()
+            logging.info('Scraper quit.\n')
 
     def extract_teams(self):
         for team in teams:
@@ -141,10 +145,10 @@ class HTML_Layer:
             logging.debug('Finished\n')
 
 class default_pipeline_settings:
-    start_week=1
-    end_week=18
-    scrape_rosters=True
-    scrape_teams=True
+    start_week=2
+    end_week=2
+    scrape_rosters=False
+    scrape_teams=False
     scrape_games=True
 
 class Season_Mixins:
@@ -166,7 +170,7 @@ def run_pipeline(year):
     logging.info('Initializing pipeline...\n')
     settings=default_pipeline_settings
     settings.year=year
-    logging.debug(f'Settings:\n\n{settings.__dict__()}\n')
+    #logging.debug(f'Settings:\n\n{settings.__dict__()}\n')
     htmls=HTML_Layer(settings)
     obj=Season(htmls,settings)
     return
@@ -205,15 +209,23 @@ class Season(Season_Mixins):
 
         for week in range(start_week,end_week):
             week_id=f'W{week}{settings.year}'
-            week_htmls=self.htmls.week_htmls[str(week)]
+            week_htmls=self.htmls.week_htmls[week]
             week_obj=Week(week,settings.year,week_htmls)
-            #weekrow=[week_id,'Season Sum',none,none,none]
-            #week_obj.dim_games.concat([week_obj.dim_games,pd.DataFrame(weekrow)], ignore_index=True)
-            print(week_obj.dim_games)
-            break
+            weekrow = [week_id, 'Season Sum']
+            cols = week_obj.dim_games.columns
+            row = {col: None for col in cols}
+            row[cols[0]] = week_id
+            row[cols[1]] = 'Season Sum'
+
+            week_obj.dim_games = pd.concat(
+                [week_obj.dim_games, pd.DataFrame([row])],
+                ignore_index=True
+            )
             dim_games_tables.append(week_obj.dim_games)
-            week_obj.substitute_player_id(self.teamref)
+            #week_obj.substitute_player_id(self.teamref)
             fact_tables.append(week_obj.fact_stats)
+            print(fact_tables)
+            return
             self.weeks.append(week_obj)
             if week==1:
                 week_obj.season_sum=week_obj.fact_stats
@@ -223,7 +235,6 @@ class Season(Season_Mixins):
                 week_obj.season_sum=giggidy
                 week_obj.season_sum['Game_ID']=week_id
             fact_tables.append(week_obj.season_sum)
-            print(week_obj.season_sum)
         return
 
         self.teamref=self.teamref.drop_duplicates(subset=['Player_ID'])
