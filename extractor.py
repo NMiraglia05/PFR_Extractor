@@ -1,28 +1,8 @@
-import logging
-from datetime import date 
 import pandas as pd
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import time
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium import webdriver
 import hashlib
 import numpy as np
-import requests
 from bs4 import BeautifulSoup
-import re
 from abc import abstractmethod, ABC
-
-logging.basicConfig(
-    filename=f'logs/log_{date.today()}.txt',
-    level=logging.INFO,
-    format='%(levelname)s - %(message)s',
-    filemode='w'
-)
-logging.info('Starting...\n')
 
 class ExtractionFailed(Exception):
     pass
@@ -49,96 +29,6 @@ def ExtractTable(soup,id):
         table_data.append(row_data)
     df = pd.DataFrame(table_data, columns=headers)
     return df
-
-class scraper_methods:
-    def uncomment_html(self):
-        return re.sub(r'<!--.*?-->', '', self.html, flags=re.DOTALL)
-
-class HTML_Scraper(scraper_methods):
-    def __init__(self):
-        self.driver = None    
-        self.test_request()
-
-    def test_request(self):
-        resp = requests.get('https://www.pro-football-reference.com/boxscores/202409080buf.htm')
-        raw_html = resp.text
-
-        test_html = re.sub(r'<!--.*?-->', '', raw_html, flags=re.DOTALL)
-        soup = BeautifulSoup(test_html, 'html.parser')
-        table = soup.find('table', id='passing_advanced')
-
-        if table:
-            self.scraping = scrape_with_requests(self.uncomment_html)
-        else:
-            self.scraping = scrape_with_selenium(self.uncomment_html)
-
-    def scrape(self, url):
-        return self.scraping.load_page(url)
-    
-    def quit(self):
-        if hasattr(self, "driver") and self.driver:
-            self.driver.quit()
-
-class scrape_with_requests:
-    def __init__(self, uncomment_callback):
-        self.uncomment = uncomment_callback
-
-    def load_page(self, url, attempt=1, max_attempts=3):
-        try:
-            resp = requests.get(url)
-            html = re.sub(r'<!--.*?-->', '', resp.text, flags=re.DOTALL)
-            return html
-
-        except Exception:
-            if attempt <= max_attempts:
-                logging.warning(f'Requests attempt {attempt} failed, retrying...')
-                return self.load_page(url, attempt+1)
-            logging.error(f'FAILED requests scrape of: {url}')
-            raise ExtractionFailed
-
-class scrape_with_selenium:
-    def __init__(self, uncomment_callback):
-        self.uncomment = uncomment_callback
-        self.start_driver()
-
-    def load_page(self, url, attempt=1, max_attempts=3):
-        logging.info(f'Attempting Selenium scrape for {url}')
-
-        try:
-            self.driver.get(url)
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-
-        except Exception:
-            if attempt <= max_attempts:
-                logging.warning(f'Selenium attempt {attempt} failed, retrying...')
-                return self.load_page(url, attempt+1)
-            logging.error(f'FAILED selenium scrape of: {url}')
-            raise ExtractionFailed
-
-        try:
-            WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.TAG_NAME, "table"))
-            )
-        except:
-            logging.error("Timed out waiting for table in Selenium")
-            raise
-
-        time.sleep(6)  # PFR rate limit compliance
-        return self.driver.page_source   
-
-    def start_driver(self):
-        logging.info('No active driver detected, starting new webdriver...')
-        service = Service(ChromeDriverManager().install())
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--enable-unsafe-swiftshader")
-        options.add_argument("--log-level=3")
-        options.add_argument("window-size=1920,1080")
-        options.add_argument("--ignore-certificate-errors")
-        self.driver = webdriver.Chrome(service=service, options=options)
 
 class DIM_Players_Mixin:
     def generate_player_id(self, name_col, birth_col):
