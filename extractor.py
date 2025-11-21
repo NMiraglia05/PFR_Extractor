@@ -56,6 +56,7 @@ class scraper_methods:
 
 class HTML_Scraper(scraper_methods):
     def __init__(self):
+        self.driver = None    
         self.test_request()
 
     def test_request(self):
@@ -75,9 +76,8 @@ class HTML_Scraper(scraper_methods):
         return self.scraping.load_page(url)
     
     def quit(self):
-        if self.driver:
-            driver.quit()
-            logging.info('Webdriver successfully closed.')
+        if hasattr(self, "driver") and self.driver:
+            self.driver.quit()
 
 class scrape_with_requests:
     def __init__(self, uncomment_callback):
