@@ -75,7 +75,9 @@ class HTML_Scraper(scraper_methods):
         return self.scraping.load_page(url)
     
     def quit(self):
-        pass
+        if self.driver:
+            driver.quit()
+            logging.info('Webdriver successfully closed.')
 
 class scrape_with_requests:
     def __init__(self, uncomment_callback):
@@ -137,10 +139,6 @@ class scrape_with_selenium:
         options.add_argument("window-size=1920,1080")
         options.add_argument("--ignore-certificate-errors")
         self.driver = webdriver.Chrome(service=service, options=options)
-
-    def quit(self):
-        self.driver.quit()
-        logging.info('Closing webdriver...\n')        
 
 class DIM_Players_Mixin:
     def generate_player_id(self, name_col, birth_col):
