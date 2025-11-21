@@ -13,6 +13,8 @@ import hashlib
 import numpy as np
 import requests
 from bs4 import BeautifulSoup
+import re
+from abc import abstractmethod, ABC
 
 logging.basicConfig(
     filename=f'logs/log_{date.today()}.txt',
@@ -48,25 +50,11 @@ def ExtractTable(soup,id):
     df = pd.DataFrame(table_data, columns=headers)
     return df
 
-def start_driver():
-    logging.info('No active driver detected, starting new webdriver...')
-    service = Service(ChromeDriverManager().install())
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--enable-unsafe-swiftshader")
-    options.add_argument("--log-level=3")
-    options.add_argument("window-size=1920,1080")
-    options.add_argument("--ignore-certificate-errors")
-    driver = webdriver.Chrome(service=service, options=options)
-
 class scraper_methods:
     def uncomment_html(self):
         return re.sub(r'<!--.*?-->', '', self.html, flags=re.DOTALL)
 
-class Scraper(scraper_methods):
+class HTML_Scraper(scraper_methods):
     def __init__(self):
         self.test_request()
 
@@ -85,6 +73,9 @@ class Scraper(scraper_methods):
 
     def scrape(self, url):
         return self.scraping.load_page(url)
+    
+    def quit(self):
+        pass
 
 class scrape_with_requests:
     def __init__(self, uncomment_callback):
@@ -106,14 +97,14 @@ class scrape_with_requests:
 class scrape_with_selenium:
     def __init__(self, uncomment_callback):
         self.uncomment = uncomment_callback
+        self.start_driver()
 
     def load_page(self, url, attempt=1, max_attempts=3):
-        global driver
         logging.info(f'Attempting Selenium scrape for {url}')
 
         try:
-            driver.get(url)
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            self.driver.get(url)
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
         except Exception:
             if attempt <= max_attempts:
@@ -123,7 +114,7 @@ class scrape_with_selenium:
             raise ExtractionFailed
 
         try:
-            WebDriverWait(driver, 10).until(
+            WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.TAG_NAME, "table"))
             )
         except:
@@ -131,7 +122,25 @@ class scrape_with_selenium:
             raise
 
         time.sleep(6)  # PFR rate limit compliance
-        return driver.page_source   
+        return self.driver.page_source   
+
+    def start_driver(self):
+        logging.info('No active driver detected, starting new webdriver...')
+        service = Service(ChromeDriverManager().install())
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--enable-unsafe-swiftshader")
+        options.add_argument("--log-level=3")
+        options.add_argument("window-size=1920,1080")
+        options.add_argument("--ignore-certificate-errors")
+        self.driver = webdriver.Chrome(service=service, options=options)
+
+    def quit(self):
+        self.driver.quit()
+        logging.info('Closing webdriver...\n')        
 
 class DIM_Players_Mixin:
     def generate_player_id(self, name_col, birth_col):
@@ -159,6 +168,9 @@ class DIM_Players_Mixin:
         return pd.Series(vectorized_sha256(combined),index=name_col.index)
 
 service = Service(ChromeDriverManager().install())
+
+class MissingCols(Exception):
+    pass
 
 class Table: # move this to the extractor module
     def __init__(self,category,soup,validate=True):
@@ -265,7 +277,7 @@ class Exporter:
 
         for obj in export_df_objects:
             obj.validate_export()
-            validiated_dfs.append(obj.df)
+            validated_dfs.append(obj.df)
 
 def start_html_scraper(url):
     html=requests.get(url)
