@@ -234,7 +234,9 @@ class Season(Season_Mixins):
                 Team(team,htmls)
 
         fact_stats_dfs=[]
+        fact_scores_dfs=[]
         dim_games_dfs=[]
+        dim_score_details_dfs=[]
 
         for week in range(start_week,end_week):
             logging.info(f'Starting week {week}...')
@@ -249,21 +251,24 @@ class Season(Season_Mixins):
                 last_week=week_objs[week-2]
             week_obj=Week(week,settings.year,week_htmls,self.teamref,last_week)
             week_objs.append(week_obj)
-            continue
             fact_stats_dfs.append(week_obj.fact_stats)
+            fact_scores_dfs.append(week_obj.scoring_df)
             dim_games_dfs.append(week_obj.games_df)
-
-        return
-
+            dim_score_details_dfs.append(week_obj.score_details_df)
+            
         self.teamref.drop(columns=['Team'],inplace=True)
         self.teamref=self.teamref.drop_duplicates(subset=['Player_ID'])
 
         fact_stats=pd.concat(fact_stats_dfs)
+        fact_scoring=pd.concat(fact_scores_dfs)
         dim_games=pd.concat(dim_games_dfs)
+        dim_score_details=pd.concat(dim_score_details_dfs)
         
         with pd.ExcelWriter('C:\\Users\\19495\\OneDrive\\Documents\\Python\\SalarySmartNFL\\NFL_Test_Webscraping_Off.xlsx',mode='a',if_sheet_exists='replace') as writer:
             fact_stats.to_excel(writer,sheet_name='FACT_Stats',index=False)
+            fact_scoring.to_excel(writer,sheet_name='FACT_Scoring',index=False)
             dim_games.to_excel(writer,sheet_name='DIM_Games',index=False)
+            dim_score_details.to_excel(writer,sheet_name='DIM_Score_Details',index=False)
             self.teamref.to_excel(writer,sheet_name='DIM_Players',index=False)
 
 class Week:
@@ -283,14 +288,13 @@ class Week:
         }
         for i,html in enumerate(htmls,start=1):
             game_obj=Game(self.week_id,i,html,roster_table,week,year)
-            self.dfs['fact']['scoring'].append(game_obj.scoring.fact.df)
-            continue
+            self.dfs['fact']['scoring'].append(game_obj.scoring.fact_df)
             self.dfs['fact']['stats'].append(game_obj.stats.df)
             self.dfs['dimension']['games'].append(game_obj.game.df)
+            self.dfs['dimension']['score_details'].append(game_obj.scoring.dimension_df)
 
-        scoring_df=pd.concat(self.dfs['fact']['scoring'])
-
-        return
+        self.scoring_df=pd.concat(self.dfs['fact']['scoring'])
+        self.score_details_df=pd.concat(self.dfs['dimension']['score_details'])
 
         games_df=pd.concat(self.dfs['dimension']['games'])
         stats_df=pd.concat(self.dfs['fact']['stats'])
@@ -362,8 +366,6 @@ class Game:
             index=f'0{index}'
         self.game_id=f'{index}{week_id}'
         self.scoring=Scoring_Tables(soup,self.game_id,roster_table)
-        print(self.scoring.fact_df)
-        return
         self.game=DIM_Games(soup,self.game_id,week,year)
         self.stats=Fact_Stats(self.game_id,soup,roster_table,self.game.df)
 
@@ -380,7 +382,9 @@ class DIM_Games(Season_Mixins):
         home_team_box=self.sects[2]
         home_team=home_team_box.get_text().strip()
 
-        self.home_team_key= [home_team]['abbr'].upper()
+
+
+        self.home_team_key= teams[home_team]['abbr'].upper()
         self.away_team_key=teams[away_team]['abbr'].upper()
 
         self.team_tags={
@@ -514,7 +518,6 @@ class Scoring_Tables(Fact):
             how='left'
         )
 
-        # Replace Scorer with Player and drop the extra join column
         merged = merged.drop(columns=['Scorer','Name','Team','Quarter']).rename(columns={'Player':'Scorer'})
         merged = merged[['Score_ID','Scorer','Game ID','Detail','value']]
         self.fact_df=merged
@@ -628,11 +631,12 @@ class Fact_Scoring(Fact):
             return 'kickoff return'
         elif 'blocked punt return' in s:
             return 'blocked punt return'
+        elif 'punt return' in s:
+            return 'punt return'
         elif 'interception return':
             return 'interception return'
         else:
             return 'unidentified'
-        raise TypeError(f'A play type could not be detected in the following description: {s}.')
 
     def parse_score(self,text):
         m=re.search(r'^(.*?)(\d+)\s+yard\s+(.*)$',text)
