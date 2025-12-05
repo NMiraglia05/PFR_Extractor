@@ -8,6 +8,7 @@ from extractor import ExtractTable, DIM_Players_Mixin, Table, Fact
 import logging
 import json
 import scraping
+from collections import namedtuple
 
 logging.basicConfig(
     filename=f'logs/log_{date.today()}.txt',
@@ -198,6 +199,39 @@ class Season_Mixins:
             value=value.split("(",1)[0].strip() if "(" in value else value
             setattr(self, attr, value)
 
+    def extract_from_html_box(self,box):
+        items=box.find_all('p')
+        details={}
+        for item in items:
+            label=item.find('strong').get_text(strip=True).replace(':','').replace(' ','_')
+            try:
+                detail=item.find('a').get_text(strip=True)
+            except AttributeError:
+                continue
+            details[label]=detail
+        return details
+
+class Team(Table,Season_Mixins):
+    def __init__(self,team,htmls):
+        team_abbr=teams[team]['abbr']
+        html=htmls.team_htmls[team_abbr]
+        soup=BeautifulSoup(html,'html.parser')
+        team_details_area=soup.find('div',{'data-template':'Partials/Teams/Summary'})
+        details=self.extract_from_html_box(team_details_area)
+        if 'General_Manager' not in details:
+            for detail in list(details.keys()):
+                if 'GM' in detail or 'General_Manager' in detail:
+                    details['General_Manager']=details[detail]
+        target_details=['Coach','Offensive_Coordinator','Defensive_Coordinator','General_Manager','Stadium']
+        for detail in target_details:
+            try:
+                value=details[detail]
+                setattr(self, detail, value)
+            except:
+                value='None'
+                setattr(self, detail, value)
+        self.team_details=[team_abbr,team,self.Coach,self.Offensive_Coordinator,self.Defensive_Coordinator,self.General_Manager,self.Stadium]
+
 def run_pipeline(year):
     logging.info('Initializing pipeline...\n')
     settings=default_pipeline_settings
@@ -230,8 +264,13 @@ class Season(Season_Mixins):
         week_objs=[]
 
         if settings.scrape_teams is True:
+            teamrows=[]
             for team in teams:
-                Team(team,htmls)
+                teamobj=Team(team,htmls)
+                teamrows.append(teamobj.team_details)
+            dim_teams=pd.DataFrame(teamrows,columns=['Team','Name','Head Coach','Offensive Coordinator','Defensive Coordinator','General Manager','Stadium'])
+            dim_teams['Team']=dim_teams['Team']+f'_{settings.year}'
+            self.dim_teams=dim_teams
 
         fact_stats_dfs=[]
         fact_scores_dfs=[]
@@ -252,6 +291,7 @@ class Season(Season_Mixins):
             week_obj=Week(week,settings.year,week_htmls,self.teamref,last_week)
             week_objs.append(week_obj)
             fact_stats_dfs.append(week_obj.fact_stats)
+            print(week_obj.fact_stats)
             fact_scores_dfs.append(week_obj.scoring_df)
             dim_games_dfs.append(week_obj.games_df)
             dim_score_details_dfs.append(week_obj.score_details_df)
@@ -260,6 +300,7 @@ class Season(Season_Mixins):
         self.teamref=self.teamref.drop_duplicates(subset=['Player_ID'])
 
         fact_stats=pd.concat(fact_stats_dfs)
+        fact_stats['Tm']=fact_stats['Tm']+f'_{settings.year}'
         fact_scoring=pd.concat(fact_scores_dfs)
         dim_games=pd.concat(dim_games_dfs)
         dim_score_details=pd.concat(dim_score_details_dfs)
@@ -270,6 +311,7 @@ class Season(Season_Mixins):
             dim_games.to_excel(writer,sheet_name='DIM_Games',index=False)
             dim_score_details.to_excel(writer,sheet_name='DIM_Score_Details',index=False)
             self.teamref.to_excel(writer,sheet_name='DIM_Players',index=False)
+            self.dim_teams.to_excel(writer,sheet_name='DIM_Teams',index=False)
 
 class Week:
     def __init__(self,week,year,htmls,roster_table,last_week):
@@ -409,14 +451,14 @@ class DIM_Games(Season_Mixins):
 
         game_desc=f'{self.home_team_key} v {self.away_team_key}'
 
-        base_list=[game_desc,week,year,self.game_date,self.game_time,self.stadium,self.roof,self.surface,self.ref]
+        base_list=[game_id,game_desc,week,year,self.game_date,self.game_time,self.stadium,self.roof,self.surface,self.ref]
 
         home_row=[self.team_tags[self.home_team_key],self.home_team_key,self.away_team_key]+base_list
         away_row=[self.team_tags[self.away_team_key],self.away_team_key,self.home_team_key]+base_list
 
         rows=[home_row,away_row]
 
-        self.df=pd.DataFrame(rows,columns=['Team_ID','Team','Opponent','Game','Week','Year','Date','Time','Stadium','Roof','Surface','Referee'])
+        self.df=pd.DataFrame(rows,columns=['Team_ID','Team','Opponent','Game ID','Game','Week','Year','Date','Time','Stadium','Roof','Surface','Referee'])
 
 class Fact_Stats: # orchestration
     def __init__(self,game_id,soup,roster_table,game_table):
@@ -511,6 +553,9 @@ class Scoring_Tables(Fact):
         self.fact=Fact_Scoring(self.details)
         self.generate_dimension()
         merge_df=pd.merge(left=self.fact.df,right=self.dimension_df,how='left',on='Score_ID')
+
+        #replace with a sub_id method in the fact class
+
         merged = merge_df.merge(
             roster_table[['Name','Team','Player']],
             left_on=['Scorer','Team'],
@@ -986,15 +1031,6 @@ class Team_Details_2:
     offensive_coordinator=7
     defensive_coordinator=8
     stadium=10
-
-class Team(Table,Season_Mixins):
-    def __init__(self,team,htmls):
-        team_abbr=teams[team]['abbr']
-        html=htmls.team_htmls[team_abbr]
-        soup=BeautifulSoup(html,'html.parser')
-        
-        team_details_area=soup.find('div',{'data-template':'Partials/Teams/Summary'})
-        team_details=team_details_area.find_all('p')
 
 # helpers
 
