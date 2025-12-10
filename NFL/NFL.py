@@ -8,7 +8,6 @@ from extractor import ExtractTable, DIM_Players_Mixin, Table, Fact
 import logging
 import json
 import scraping
-from collections import namedtuple
 
 logging.basicConfig(
     filename=f'logs/log_{date.today()}.txt',
@@ -155,8 +154,7 @@ class HTML_Layer:
                 f.write(f"{key}:\n{value}\n\n")
 
         with open(f"{base_path}week_htmls.txt", "w", encoding="utf-8") as f:
-            for key, value in self.week_htmls.items():
-                f.write(f"{key}:\n{value}\n\n")
+            json.dump(self.week_htmls, f, ensure_ascii=False)
 
     
     def extract_teams(self):
@@ -179,7 +177,7 @@ class HTML_Layer:
 
 class default_pipeline_settings:
     start_week=1
-    end_week=18
+    end_week=4
     scrape_rosters=True
     scrape_teams=True
     scrape_games=True
@@ -291,7 +289,6 @@ class Season(Season_Mixins):
             week_obj=Week(week,settings.year,week_htmls,self.teamref,last_week)
             week_objs.append(week_obj)
             fact_stats_dfs.append(week_obj.fact_stats)
-            print(week_obj.fact_stats)
             fact_scores_dfs.append(week_obj.scoring_df)
             dim_games_dfs.append(week_obj.games_df)
             dim_score_details_dfs.append(week_obj.score_details_df)
@@ -300,7 +297,7 @@ class Season(Season_Mixins):
         self.teamref=self.teamref.drop_duplicates(subset=['Player_ID'])
 
         fact_stats=pd.concat(fact_stats_dfs)
-        fact_stats['Tm']=fact_stats['Tm']+f'_{settings.year}'
+        fact_stats['Tm']=fact_stats['Tm'].astype(str)+f'_{settings.year}'
         fact_scoring=pd.concat(fact_scores_dfs)
         dim_games=pd.concat(dim_games_dfs)
         dim_score_details=pd.concat(dim_score_details_dfs)
@@ -317,6 +314,7 @@ class Week:
     def __init__(self,week,year,htmls,roster_table,last_week):
         if len(str(week))==1:
             week=f'0{week}'
+        self.week=week
         self.week_id=f'{week}{year}'
         self.dfs={
             'fact':{
@@ -372,27 +370,24 @@ class Week:
                 merged = dfs[0].merge(dfs[1], on='Player', how='outer')
                 merged = merged.fillna(0)
     
-                for calc in cat.season_calcs:
-                    if calc=='sum':
-                        form=lambda x,y:x+y
-                    if calc=='avg':
-                        form=lambda a,b,x,y:(a+x)/(b+y)
-                    if calc=='pct':
-                        form=lambda a,b,x,y:((a+x)*100)/(b+y)
-                    if calc=='rat':
-                        form=lambda x,y:(x+y)/2
-                    for col in cat.season_calcs[calc]:
-                        if calc=='sum':
-                            merged[f'{col}_z']=form(merged[f'{col}_x'],merged[f'{col}_y'])
-                        elif calc=='rat':
-                            merged[f'{col}_z']=form(merged[f'{col}_x'],merged[f'{col}_y'])
-                        else:
-                            cols=cat.season_calcs[calc][col]
-                            merged[f'{col}_z']=form(merged[f'{cols[0]}_x'],merged[f'{cols[0]}_y'],merged[f'{cols[1]}_x'],merged[f'{cols[1]}_y'])
+                for col in cat.season_calcs['sum']:
+                    merged[f'{col}_z']=merged[f'{col}_x']+merged[f'{col}_y']
                 zcols = merged.filter(regex='_z$').columns
                 merged_z = merged[['Player','Tm_y'] + list(zcols)]
                 filtered_=merged_z
                 filtered_.columns = [filtered_.columns[0]] + [c[:-2] for c in filtered_.columns[1:]]
+                for calc in cat.season_calcs:
+                    if calc=='sum':
+                        continue
+                    elif calc=='avg':
+                        form=lambda a,b:a/b
+                    elif calc=='pct':
+                        form=lambda a,b:(a/b)*100
+                    elif calc=='rat':
+                        form=lambda a,b:a/2
+                    for col in cat.season_calcs[calc]:
+                        inputs=cat.season_calcs[calc][col]
+                        filtered_.loc[:, col]=form(filtered_[inputs[0]],filtered_[inputs[1]])
                 long=pd.melt(filtered_,id_vars=['Player','Tm'],value_name='Value',var_name='Stat')
                 merged_dfs.append(long)
         self.season_sum=pd.concat(merged_dfs)
@@ -585,7 +580,10 @@ class Fact_Scoring(Fact):
         dfs=[]
         for score in details:
             df=self.parse_details(details[score])
-            df['Score_ID']=score
+            try:
+                df['Score_ID']=score
+            except:
+                continue
             dfs.append(df)
         df=pd.concat(dfs)
         Elphaba=pd.melt(df,id_vars=['Score_ID','Scorer'],var_name='Detail')
@@ -686,11 +684,39 @@ class Fact_Scoring(Fact):
     def parse_score(self,text):
         m=re.search(r'^(.*?)(\d+)\s+yard\s+(.*)$',text)
         if not m:
-            return None,None,None
+            if 'fumble' in text:
+                
+                idx = text.lower().find("fumble")
+                if idx != -1:
+                    left = text[:idx].strip()
+                    right = 'fumble '+text[idx+len("fumble"):].strip()
+                    num=0
+                    return left,num,right
+            else:
+                return None,None,None
         left=m.group(1).strip()
         num=int(m.group(2))
         right=m.group(3)
         return left,num,right
+
+class Score:
+    def __init__(self,details,type):
+        pass
+
+class score_type(ABC):
+    pass
+
+class Touchdown(score_type):
+    abbreviation='TD'
+
+class FieldGoal(score_type):
+    abbreviation='FG'
+
+class PointAddedTry(score_type):
+    abbreviation='PAT'
+
+class TwoPointAttempt(score_type):
+    abbreviation='2PT'
 
 class Scoring(HTML_Extraction):
     id='scoring'
@@ -801,15 +827,15 @@ class Receiving(metaclass=Stat_Cat):
             'Avg/R':['Yds','Rec']
             },
         'pct':{
-            'Pct':['Tgt','Rec']
+            'Pct':['Rec','Tgt']
             }
         }
 
     season_calcs={
-        'sum':['C1','C2','C4','C6','C7','C8','C10','C13','C15','C17'],
+        'sum':['C1','C2','C4','C6','C7','C8','C10','C12','C13','C15','C17','C18'],
         'avg':{'C5':['C4','C2'],'C9':['C8','C2'],'C11':['C10','C2'],'C14':['C2','C13']},
         'pct':{'C3':['C2','C1'],'C16':['C15','C1']},
-        'rat':['C12','C18']
+        'rat':{'C12':['C12','C12'],'C18':['C18','C18']}
         }
     summary_stats=['C1','C2','C4','C6','C7','C8','C10','C12','C13','C15','C16','C17','C18']
 
@@ -914,7 +940,6 @@ class Advanced_Defense(HTML_Extraction): # DO NOT add the stat_cat metaclass to 
     expected_cols={col:None for col in cols}
 
     cat='advanced defense'
-
 
 # functions
 
