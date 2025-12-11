@@ -108,12 +108,26 @@ class Table: # move this to the extractor module
 
 
 class Fact(Table):
-    def summerge(self,merged_df):
-        calc_cols=convert_col_names(merged_df)
-        for col in calc_cols:
-            merged_df[col]=merged_df[f'{col}_x']+merged_df[f'{col}_y']
-            pd.drop(merged_df,columns=[f'{col}_x',f'{col}_y'])
-        return merged_df
+    def summerge(self,merged_df): #pass a pre-merged df into this. Does not have merging logic since it's very context-dependent
+            calc_cols=convert_col_names(merged_df)
+            for col in calc_cols:
+                merged_df[col]=merged_df[f'{col}_x']+merged_df[f'{col}_y']
+                merged_df.drop(columns=[f'{col}_x',f'{col}_y'],inplace=True)
+            return merged_df 
+
+    def convert_col_names(self,df):
+        cols=df.columns
+        cols=[col for col in cols if '_x' in col or '_y' in col]
+        col_count=len(cols)
+        if col_count%2==1:
+            raise TypeError('An unmatched value column was passed into summerge.')
+        if col_count==0:
+            logging.warning('No value columns passed into summerge.')
+        clean_cols=[]
+        for col in cols:
+            col=col.replace('_x','')
+            clean_cols.append(col)
+        return clean_cols
     
     def calculate_values(self):
         self.clean_and_convert(self.category)
