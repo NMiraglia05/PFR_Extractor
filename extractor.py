@@ -107,7 +107,14 @@ class Table: # move this to the extractor module
                 self.df[col] = self.df[col].str.replace(dirtychar, replacement, regex=False)
 
 
-class Fact(Table): 
+class Fact(Table):
+    def summerge(self,merged_df):
+        calc_cols=convert_col_names(merged_df)
+        for col in calc_cols:
+            merged_df[col]=merged_df[f'{col}_x']+merged_df[f'{col}_y']
+            pd.drop(merged_df,columns=[f'{col}_x',f'{col}_y'])
+        return merged_df
+    
     def calculate_values(self):
         self.clean_and_convert(self.category)
 
