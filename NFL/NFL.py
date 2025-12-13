@@ -1,10 +1,10 @@
 import re
-from abc import ABC, ABCMeta, abstractmethod
+from abc import ABC, ABCMeta
 import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 from datetime import date
-from extractor import ExtractTable, DIM_Players_Mixin, Table, Fact
+from extractor import DIM_Players_Mixin, Table, Fact, BaseClasses
 import logging
 import json
 import scraping
@@ -25,51 +25,11 @@ with open("stats.json") as f:
 dim_stats={}
 
 for cat in stats_dict:
-    dim_stats[cat]={}
+    dim_stats[cat.lower()]={}
     for item in stats_dict[cat]:
-        dim_stats[cat][item['Abbrev']]=item['ID']
+        dim_stats[cat.lower()][item['Abbrev']]=item['ID']
 
 # base classes
-
-class HTML_Extraction(ABC):
-    """All classes that will interact with beautifulsoup must inherit this."""
-    @property
-    @abstractmethod
-    def id(self):
-        """HTML class identifier"""
-        raise NotImplementedError()
-
-    @property
-    @abstractmethod
-    def expected_cols(self):
-        """List or set of expected column names for conducting shapechecks"""
-        raise NotImplementedError()
-    
-    @property
-    @abstractmethod
-    def cat(self):
-        """List or set of expected column names for conducting shapechecks"""
-        raise NotImplementedError()
-
-class FactDetails(HTML_Extraction):
-    """All classes that will interact with the Fact class must inherit this."""
-    @property
-    @abstractmethod
-    def identifier(self):
-        """Unique identifier for the category"""
-        raise NotImplementedError()
-
-    @property
-    @abstractmethod
-    def value_vars(self):
-        """List or set of expected column names for pivoting. These will be retained."""
-        raise NotImplementedError()
-
-    @property
-    @abstractmethod
-    def stat_lookup(self):
-        """Dictionary of all stats that will be imported, along with their corresponding id."""
-        raise NotImplementedError()
 
 class MissingCols(Exception):
     pass
@@ -310,7 +270,7 @@ class Season(Season_Mixins):
             self.teamref.to_excel(writer,sheet_name='DIM_Players',index=False)
             self.dim_teams.to_excel(writer,sheet_name='DIM_Teams',index=False)
 
-class Week:
+class Week(Fact):
     def __init__(self,week,year,htmls,roster_table,last_week):
         if len(str(week))==1:
             week=f'0{week}'
@@ -365,21 +325,16 @@ class Week:
                     filtered_df = filtered_df[filtered_df['Stat'].isin(cat.summary_stats)]
                     filtered_df=filtered_df.pivot(index=['Player','Tm'],columns=['Stat'],values='Value')
                     filtered_df.columns.name=None
-                    filtered_df = filtered_df.reset_index()      
+                    filtered_df = filtered_df.reset_index()     
                     dfs.append(filtered_df)
                 merged = dfs[0].merge(dfs[1], on='Player', how='outer')
                 merged = merged.fillna(0)
-    
-                for col in cat.season_calcs['sum']:
-                    merged[f'{col}_z']=merged[f'{col}_x']+merged[f'{col}_y']
-                zcols = merged.filter(regex='_z$').columns
-                merged_z = merged[['Player','Tm_y'] + list(zcols)]
-                filtered_=merged_z
-                filtered_.columns = [filtered_.columns[0]] + [c[:-2] for c in filtered_.columns[1:]]
+                merged.drop(columns=['Tm_x'],inplace=True)
+                merged.rename(columns={'Tm_y':'Tm'},inplace=True)
+                filtered_=self.summerge(merged)
+
                 for calc in cat.season_calcs:
-                    if calc=='sum':
-                        continue
-                    elif calc=='avg':
+                    if calc=='avg':
                         form=lambda a,b:a/b
                     elif calc=='pct':
                         form=lambda a,b:(a/b)*100
@@ -387,7 +342,7 @@ class Week:
                         form=lambda a,b:a/2
                     for col in cat.season_calcs[calc]:
                         inputs=cat.season_calcs[calc][col]
-                        filtered_.loc[:, col]=form(filtered_[inputs[0]],filtered_[inputs[1]])
+                        filtered_[col]=form(filtered_[inputs[0]],filtered_[inputs[1]]).astype(float)
                 long=pd.melt(filtered_,id_vars=['Player','Tm'],value_name='Value',var_name='Stat')
                 merged_dfs.append(long)
         self.season_sum=pd.concat(merged_dfs)
@@ -477,7 +432,7 @@ class Fact_Stats: # orchestration
 class Stat_Table(Fact):
     def __init__(self,soup,category,roster_table):
         self.category=category
-        logging.info(f'Extracting {category.cat} data...')
+        logging.debug(f'Extracting {category.cat} data...')
         for k,v in category.__dict__.items():
             if not k.startswith('__'):
                 setattr(self,k,v)
@@ -486,7 +441,7 @@ class Stat_Table(Fact):
         except MissingCols:
             raise MissingCols
 
-        self.df=self.df[self.df['Player']!='Player'].fillna(0).infer_objects(copy=False)
+        self.df=self.df[self.df['Player']!='Player'].infer_objects(copy=False).fillna(0)
         if hasattr(self, "cleaning"):
             self.clean_table()
         self.typecheck()
@@ -718,7 +673,7 @@ class PointAddedTry(score_type):
 class TwoPointAttempt(score_type):
     abbreviation='2PT'
 
-class Scoring(HTML_Extraction):
+class Scoring(BaseClasses.html):
     id='scoring'
     expected_cols={'Quarter':object,'Time':object,'Detail':object}
     cat='scoring'
@@ -757,7 +712,6 @@ class Passing(metaclass=Stat_Cat):
         }
     summary_stats=['P1','P2','P3','P6','P8','P10','P13','P15','P17','P19','P20','P21','P22','P23','P25','P26','P28']
     season_calcs={
-        'sum':['P1','P2','P3','P6','P8','P10','P13','P15','P17','P19','P20','P21','P22','P23','P28'],
         'avg':{'P4':['P3','P2'],'P9':['P8','P2'],'P11':['P10','P1'],'P12':['P10','P2'],'P14':['P13','P1']},
         'pct':{'P5':['P1','P2'],'P7':['P6','P28'],'P16':['P15','P2'],'P18':['P17','P2']}
     }
@@ -832,7 +786,6 @@ class Receiving(metaclass=Stat_Cat):
         }
 
     season_calcs={
-        'sum':['C1','C2','C4','C6','C7','C8','C10','C12','C13','C15','C17','C18'],
         'avg':{'C5':['C4','C2'],'C9':['C8','C2'],'C11':['C10','C2'],'C14':['C2','C13']},
         'pct':{'C3':['C2','C1'],'C16':['C15','C1']},
         'rat':{'C12':['C12','C12'],'C18':['C18','C18']}
@@ -868,7 +821,6 @@ class Rushing(metaclass=Stat_Cat):
         }
     }
     season_calcs={
-        'sum':['R1','R2','R4','R5','R6','R8','R10'],
         'avg':{'R3':['R2','R1'],'R7':['R6','R1'],'R9':['R8','R1'],'R11':['R1','R10']}
     }
     summary_stats=['R1','R2','R4','R5','R6','R8','R10']
@@ -933,7 +885,7 @@ class Defense():
         }
     summary_stats=['D1','D2','D3','D5','D6','D7','D8','D9','D10','D11','D12','D13','D14','D15','D16','D17','D19','D22','D23','D24','D25','D26','D27','D28','D29','D30','D31']
 
-class Advanced_Defense(HTML_Extraction): # DO NOT add the stat_cat metaclass to this. This is to set the extraction to be added into the defense table.
+class Advanced_Defense(BaseClasses.html): # DO NOT add the stat_cat metaclass to this. This is to set the extraction to be added into the defense table.
     id='defense_advanced'
 
     cols=['Player','Tm','Int','Tgt','Cmp','Cmp%','Yds','Yds/Cmp','Yds/Tgt','TD','Rat','DADOT','Air','YAC','Bltz','Hrry','QBKD','Sk','Prss','Comb','MTkl','MTkl%']
@@ -995,13 +947,18 @@ class Defense_Table(Stat_Table): #extension
 
 # DIM_Players
 
-class Roster(HTML_Extraction):
+class Roster(BaseClasses.html):
     id='roster'
     expected_cols={'No.':object,'Player':object,'Age':np.int64,'Pos':object,'G':np.int64,'GS':np.int64,'Wt':object,'Ht':object,'College/Univ':object,'BirthDate':object,'Yrs':object,'AV':object,'Drafted (tm/rnd/yr)':object}
     cleaning={
         ',':{'cols':['College/Univ'],'replace':'/'},
     }
     cat='DIM_Players'
+
+class Starters(BaseClasses.html):
+    id='starters'
+    cat='starters'
+    expected_cols={'Pos':object,'Player':object,'Age':int,'Yrs':object,'GS':int,'Summary of Player Stats':object,'Drafted (tm/rnd/yr)':object}
 
 class Players_Table(Table):
     def __init__(self,soup,year):
@@ -1011,14 +968,15 @@ class Players_Table(Table):
         self.df=self.df[self.df['No.'] != 'No.'].reset_index(drop=True)
         self.df.drop(columns=['Drafted (tm/rnd/yr)'],inplace=True)
         self.df['Yrs']=self.df['Yrs'].replace('Rook', 0)
+        self.base_roster=self.df.copy()
         starters=self.get_starters()
-        self.df['Starter']=self.df['Player'].isin(starters)
+        self.base_roster['Starter']=self.base_roster['Player'].isin(starters)
     
     def get_starters(self):
-        df=ExtractTable(self.soup,'starters')
-        df['Player']=df['Player'].str.replace('*','').fillna(0)
-        df=df[df['Pos'] != ''].reset_index(drop=True)
-        my_list=df['Player'].tolist()
+        super().__init__(Starters,self.soup)
+        self.df['Player']=self.df['Player'].str.replace('*','').fillna(0)
+        self.df=self.df[self.df['Pos'] != ''].reset_index(drop=True)
+        my_list=self.df['Player'].tolist()
         return my_list
 
 class DIM_Players(DIM_Players_Mixin):
@@ -1030,7 +988,7 @@ class DIM_Players(DIM_Players_Mixin):
             html=htmls.roster_htmls[teams[team]['abbr']]
             soup=BeautifulSoup(html,'html.parser')
             table=Players_Table(soup,year)
-            self.df=table.df.copy()
+            self.df=table.base_roster.copy()
             self.generate_player_id(self.df['Player'],self.df['BirthDate'])
             self.df['Team']=teams[team]['abbr']
             self.dfs[teams[team]['abbr']]=self.df
