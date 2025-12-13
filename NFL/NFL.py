@@ -8,6 +8,7 @@ from extractor import DIM_Players_Mixin, Table, Fact, BaseClasses
 import logging
 import json
 import scraping
+from pathlib import Path
 
 logging.basicConfig(
     filename=f'logs/log_{date.today()}.txt',
@@ -210,6 +211,9 @@ class Season(Season_Mixins):
 
         settings.end_week+=1 #ensures users can specify their actual desired endweek. no need to understand how the Range loop works
 
+        
+        self.save_path=Path(f"C:\\Users\\19495\\OneDrive\\Documents\\Python\\SalarySmartNFL\\{self.settings.year}")
+        self.save_path.mkdir(parents=True,exist_ok=True)
 
         start_week=settings.start_week
         end_week=settings.end_week
@@ -262,7 +266,7 @@ class Season(Season_Mixins):
         dim_games=pd.concat(dim_games_dfs)
         dim_score_details=pd.concat(dim_score_details_dfs)
         
-        with pd.ExcelWriter('C:\\Users\\19495\\OneDrive\\Documents\\Python\\SalarySmartNFL\\NFL_Test_Webscraping_Off.xlsx',mode='a',if_sheet_exists='replace') as writer:
+        with pd.ExcelWriter(f'{self.save_path}\\dashboard.xlsx',mode='a',if_sheet_exists='replace') as writer:
             fact_stats.to_excel(writer,sheet_name='FACT_Stats',index=False)
             fact_scoring.to_excel(writer,sheet_name='FACT_Scoring',index=False)
             dim_games.to_excel(writer,sheet_name='DIM_Games',index=False)
